@@ -1,0 +1,34 @@
+INDI USBRelay2 Roof 0.2 - (beta)
+========================
+
+You must have CMake >= 2.8 in order to build this package.
+
+indi_usbrelay2_roof
+===================
+
+1) $ cd ~/Projects
+2) $ git clone https://github.com/magnue/indi_usbrelay2_roof.git
+3) $ cd indi_usbrelay2_roof
+4) $ mkdir build
+5) $ cd build
+6) $ cmake -DCMAKE_INSTALL_PREFIX=/usr . ..
+7) $ sudo make install
+
+Dependencies
+============
+
++ libindi and it's dependencies
+    # To install libindi or to build from source 
+        # http://www.indilib.org/forum/general/210-howto-building-latest-libindi-ekos.html
+
++ libusb_relay_device.so [usb_relay_hid] and it's dependencies
+    $ mkdir ~/Projects
+    $ cd ~/Projects
+    $ git clone https://github.com/pavel-a/usb-relay-hid.git
+    $ cd usb-relay-hid/commandline/makemake/
+    $ make
+    $ sudo cp usb_relay_device.so /usr/local/lib/libusb_relay_device.so
+    $ cd ../../lib/
+    $ sudo cp usb_relay_device.h /usr/local/include/usb_relay_device.h
+    $ echo "/usr/local/lib" | sudo tee /etc/ld.so.conf.d/usr_local_lib.conf
+

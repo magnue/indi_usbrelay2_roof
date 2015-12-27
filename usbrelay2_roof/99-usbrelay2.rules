@@ -1,0 +1,1 @@
+ACTION=="add", ATTR{idVendor}=="16c0", ATTR{idProduct}=="05df", MODE="0666"
