@@ -31,9 +31,10 @@ INID USBRelay2 Roof does support simulation. You can compile it and see that it 
 
 <br>
 #### Installing dependencies
-1. ##### libindi and it's dependencies
-To install libindi or to build from source [see instructions](http://www.indilib.org/forum/general/210-howto-building-latest-libindi-ekos.html)
-2. ##### libusb_relay_device.so [usb_relay_hid], and it's dependencies
+##### libindi and it's dependencies
+* To install libindi or to build from source [see instructions](http://www.indilib.org/forum/general/210-howto-building-latest-libindi-ekos.html)
+
+##### libusb_relay_device.so [usb_relay_hid], and it's dependencies
 ```
 mkdir ~/Projects
 cd ~/Projects
@@ -48,7 +49,7 @@ sudo ldconfig
 ```
 
 <br>
-#### Install indi_usbrelay2_roof
+#### Install INDI USBRelay2 Roof
 ```
 cd ~/Projects
 git clone https://github.com/magnue/indi_usbrelay2_roof.git
@@ -58,7 +59,7 @@ cd build
 cmake -DCMAKE_INSTALL_PREFIX=/usr . ..
 sudo make install
 ```
-#### Update indi_usbrelay2_roof
+#### Update
 ```
 cd ~/Projects/indi_usbrelay2_roof/
 git pull
