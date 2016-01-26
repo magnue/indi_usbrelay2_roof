@@ -26,13 +26,13 @@ INID USBRelay2 Roof does support simulation. You can compile it and see that it 
 <br>
 #### Attributions
 * This project could not be done without the existing libindi project or the usb-relay-hid API.
-* This project is 3rd party and dependent on the mentioned projects, and licensed accordingly. See LICENSE.
+* This project is 3rd party and dependent on the mentioned projects, and licensed accordingly. See LICENSE and COPYING.BSD.
 * Some files have additional lisence information, see file headers.
 
 <br>
 #### Installing dependencies
 ##### libindi and it's dependencies
-* To install libindi or to build from source [see instructions](http://www.indilib.org/forum/general/210-howto-building-latest-libindi-ekos.html)
+* To build libindi from source [see instructions](http://www.indilib.org/forum/general/210-howto-building-latest-libindi-ekos.html)
 
 ##### libusb_relay_device.so [usb_relay_hid], and it's dependencies
 ```
@@ -40,6 +40,7 @@ mkdir ~/Projects
 cd ~/Projects
 git clone https://github.com/pavel-a/usb-relay-hid.git
 cd usb-relay-hid/commandline/makemake/
+sudo apt-get install libusb-dev
 make
 sudo cp usb_relay_device.so /usr/local/lib/libusb_relay_device.so
 cd ../../lib/

@@ -18,7 +18,7 @@ Dependencies
 ============
 
 + libindi and it's dependencies
-    # To install libindi or to build from source 
+    # To to build libindi from source 
         # http://www.indilib.org/forum/general/210-howto-building-latest-libindi-ekos.html
 
 + libusb_relay_device.so [usb_relay_hid] and it's dependencies
@@ -26,6 +26,7 @@ Dependencies
     $ cd ~/Projects
     $ git clone https://github.com/pavel-a/usb-relay-hid.git
     $ cd usb-relay-hid/commandline/makemake/
+    $ sudo apt-get install libusb-dev
     $ make
     $ sudo cp usb_relay_device.so /usr/local/lib/libusb_relay_device.so
     $ cd ../../lib/
