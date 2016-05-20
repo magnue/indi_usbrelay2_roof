@@ -1,4 +1,4 @@
-INDI USBRelay2 Roof 0.2 - (beta)
+INDI USBRelay2 Roof 0.3 - (beta)
 ========================
 
 You must have CMake >= 2.8 in order to build this package.

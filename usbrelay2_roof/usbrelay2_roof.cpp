@@ -28,8 +28,10 @@
 #include <string.h>
 
 #include <memory>
+#include <algorithm>
 
-#include <indicom.h>
+#include <libindi/indicom.h>
+#include <libindi/indilogger.h>
 
 #define SETUP_TAB "Device setup"
 #define POWER_TAB "Power setup"
@@ -63,7 +65,7 @@ void ISNewSwitch(const char *dev, const char *name, ISState *states, char *names
         usbRelay2->ISNewSwitch(dev, name, states, names, num);
 }
 
-void ISNewText(	const char *dev, const char *name, char *texts[], char *names[], int num)
+void ISNewText(const char *dev, const char *name, char *texts[], char *names[], int num)
 {
         ISInit();
         usbRelay2->ISNewText(dev, name, texts, names, num);
@@ -75,7 +77,7 @@ void ISNewNumber(const char *dev, const char *name, double values[], char *names
         usbRelay2->ISNewNumber(dev, name, values, names, num);
 }
 
-void ISNewBLOB (const char *dev, const char *name, int sizes[], int blobsizes[], char *blobs[], 
+void ISNewBLOB(const char *dev, const char *name, int sizes[], int blobsizes[], char *blobs[], 
         char *formats[], char *names[], int n)
 {
   INDI_UNUSED(dev);
@@ -96,18 +98,26 @@ void ISSnoopDevice (XMLEle *root)
 
 USBRelay2::USBRelay2()
 {
-    setVersion(0,2);
+    setVersion(0,3);
     MotionRequest = 0;
     AbsAtStart = 0;
-    Startup = true;
-    DoFix = false;
-    IsParkingAction = false;
+    isConnecting = true;
+    isAdding = false;
+    isParkingAction = false;
 
     SetDomeCapability(DOME_CAN_ABORT | DOME_CAN_PARK);   
 }
 
 USBRelay2::~USBRelay2()
 {
+    for (int i = 0; i < MAX_POWER_CHANNELS; ++i)
+    {
+        delete PowerDeviceTP[i];
+        delete PowerSwitchSP[i];
+        delete ConnectingSwitchSP[i];
+        delete ParkingSwitchSP[i];
+        delete UnparkSwitchSP[i];
+    }
 }
 
 /************************************************************************************
@@ -119,24 +129,26 @@ bool USBRelay2::saveConfigItems(FILE *fp)
     IUSaveConfigText(fp, &PortTP);
     IUSaveConfigSwitch(fp, &AutoParkSP);
     IUSaveConfigText(fp, &DeviceSelectTP);
-    IUSaveConfigText(fp, &PowerDeviceTP);
+    if (PowerSwitchSP[0]->sp != NULL)
+    {
+        IUSaveConfigSwitch(fp, &ConnectingEnableSP);
+        IUSaveConfigSwitch(fp, &ParkingEnableSP);
+        IUSaveConfigSwitch(fp, &UnparkEnableSP);
+    }
+    for (int i = 0; i < MAX_POWER_CHANNELS; ++i)
+    {
+        if (PowerSwitchSP[i]->sp != NULL)
+        {
+            IUSaveConfigText(fp, PowerDeviceTP[i]);
+            IUSaveConfigSwitch(fp, ConnectingSwitchSP[i]);
+            IUSaveConfigSwitch(fp, ParkingSwitchSP[i]);
+            IUSaveConfigSwitch(fp, UnparkSwitchSP[i]);
+        }
+    }
 
     IUSaveConfigNumber(fp, &RoofPropertiesNP);
     IUSaveConfigNumber(fp, &RoofTravelMSNP);
     IUSaveConfigNumber(fp, &RoofLimitNP);
-
-    if (PowerDeviceT[0].text != NULL && strcmp(PowerDeviceT[0].text,"")!=0)
-    {
-        IUSaveConfigSwitch(fp, &ConnectingEnableSP);
-        IUSaveConfigSwitch(fp, &ConnectingSwitchSP);
-        IUSaveConfigSwitch(fp, &ConnectingSwitchCh2SP);
-        IUSaveConfigSwitch(fp, &ParkingEnableSP);
-        IUSaveConfigSwitch(fp, &ParkingSwitchSP);
-        IUSaveConfigSwitch(fp, &ParkingSwitchCh2SP);
-        IUSaveConfigSwitch(fp, &UnparkEnableSP);
-        IUSaveConfigSwitch(fp, &UnparkSwitchSP);
-        IUSaveConfigSwitch(fp, &UnparkSwitchCh2SP);
-    }
 
     return true;
 }
@@ -157,19 +169,11 @@ bool USBRelay2::initProperties()
     IUFillNumberVector(&AbsolutePosNP, AbsolutePosN, 1, getDeviceName(), "ABSOLUTE_POSITION",
             "Roof position", MAIN_CONTROL_TAB, IP_RO, 60, IPS_IDLE);
 
-    IUFillSwitch(&PowerSwitchS[0],"POWER_SWITCH_1-1","switch 1 ch.1",ISS_OFF);
-    IUFillSwitch(&PowerSwitchCh2S[0],"POWER_SWITCH_1-2","switch 1 ch.2",ISS_OFF);
-    IUFillSwitch(&PowerSwitchS[1],"POWER_SWITCH_2-1","switch 2 ch.1",ISS_OFF);
-    IUFillSwitch(&PowerSwitchCh2S[1],"POWER_SWITCH_2-2","switch 2 ch.2",ISS_OFF);
-    IUFillSwitch(&PowerSwitchS[2],"POWER_SWITCH_3-1","switch 3 ch.1",ISS_OFF);
-    IUFillSwitch(&PowerSwitchCh2S[2],"POWER_SWITCH_3-2","switch 3 ch.2",ISS_OFF);
-    IUFillSwitch(&PowerSwitchS[3],"POWER_SWITCH_4-1","switch 4 ch.1",ISS_OFF);
-    IUFillSwitch(&PowerSwitchCh2S[3],"POWER_SWITCH_4-2","switch 4 ch.2",ISS_OFF);
-
-    IUFillSwitchVector(&PowerSwitchSP,PowerSwitchS,0,getDeviceName(),"POWER_SWITCHES-1","Power ch.1",
-            MAIN_CONTROL_TAB,IP_RW,ISR_NOFMANY,0,IPS_IDLE);
-    IUFillSwitchVector(&PowerSwitchCh2SP,PowerSwitchCh2S,0,getDeviceName(),"POWER_SWITCHES-2","Power ch.2",
-            "Main Control",IP_RW,ISR_NOFMANY,0,IPS_IDLE);
+    for (int i = 0; i < MAX_POWER_CHANNELS; ++i)
+    {
+        PowerSwitchSP[i] = new ISwitchVectorProperty;
+        PowerSwitchSP[i]->sp = NULL;
+    }
 
     /************************************************************************************
     * Calibration Tab
@@ -192,82 +196,47 @@ bool USBRelay2::initProperties()
     IUFillTextVector(&DeviceListTP,DeviceListT,1,getDeviceName(),"DEVICES_LIST","Device list",
             SETUP_TAB,IP_RO,60,IPS_IDLE);
     
-    IUFillText(&DeviceTestT[0],"DEVICE_TEST","test dev (char5x)","");
+    IUFillText(&DeviceTestT[0],"DEVICE_TEST","test dev (char5x + i)","");
     IUFillTextVector(&DeviceTestTP,DeviceTestT,1,getDeviceName(),"DEVICE_TEST","Device test",
             SETUP_TAB,IP_RW,60,IPS_IDLE);
 
-    IUFillText(&DeviceSelectT[0],"DEVICE_OPEN","open dev (char5x)","");
-    IUFillText(&DeviceSelectT[1],"DEVICE_CLOSE","close dev (char5x)","");
-    IUFillTextVector(&DeviceSelectTP,DeviceSelectT,2,getDeviceName(),"DEVICE_SELECTION","Device select",
+    IUFillText(&DeviceSelectT[0],"DEVICE_A","dev #A (char5x + i)","");
+    IUFillText(&DeviceSelectT[1],"DEVICE_B","dev #B (char5x + i)","");
+    IUFillText(&DeviceSelectT[2],"DEVICE_C","dev #C (char5x + i)","");
+    IUFillTextVector(&DeviceSelectTP,DeviceSelectT,3,getDeviceName(),"DEVICE_SELECTION","Open/Close devices",
             SETUP_TAB,IP_RW,60,IPS_IDLE);
 
-    IUFillText(&PowerDeviceT[0],"POWER_DEVICE_1","dev 1 (char5x)","");
-    IUFillText(&PowerDeviceT[1],"POWER_DEVICE_2","dev 2 (char5x)","");
-    IUFillText(&PowerDeviceT[2],"POWER_DEVICE_3","dev 3 (char5x)","");
-    IUFillText(&PowerDeviceT[3],"POWER_DEVICE_4","dev 4 (char5x)","");
-    IUFillTextVector(&PowerDeviceTP,PowerDeviceT,1,getDeviceName(),"POWER_DEVICES","Power devices",
-            SETUP_TAB,IP_RW,60,IPS_IDLE);
+    for (int i = 0; i < MAX_POWER_CHANNELS; ++i)
+        PowerDeviceTP[i] = new ITextVectorProperty;
+    
+    PowerDeviceT[0] = new IText;
+    IUFillText(PowerDeviceT[0],"POWER_DEVICE_NAME","dev 0 (char5x + i)","");
+    IUFillTextVector(PowerDeviceTP[0],PowerDeviceT[0],1,getDeviceName(),"POWER_DEVICE_0","Power device 0",
+            SETUP_TAB,IP_RW,60,IPS_IDLE);    
 
     /************************************************************************************
     * Power setup TAB
     * ***********************************************************************************/
-    IUFillSwitch(&ConnectingSwitchS[0],"CONNECTING_SWITCH_1-1","switch 1 ch.1",ISS_OFF);
-    IUFillSwitch(&ConnectingSwitchCh2S[0],"CONNECTING_SWITCH_1-2","switch 1 ch.2",ISS_OFF);
-    IUFillSwitch(&ConnectingSwitchS[1],"CONNECTING_SWITCH_2-1","switch 2 ch.1",ISS_OFF);
-    IUFillSwitch(&ConnectingSwitchCh2S[1],"CONNECTING_SWITCH_2-2","switch 2 ch.2",ISS_OFF);
-    IUFillSwitch(&ConnectingSwitchS[2],"CONNECTING_SWITCH_3-1","switch 3 ch.1",ISS_OFF);
-    IUFillSwitch(&ConnectingSwitchCh2S[2],"CONNECTING_SWITCH_3-2","switch 3 ch.2",ISS_OFF);
-    IUFillSwitch(&ConnectingSwitchS[3],"CONNECTING_SWITCH_4-1","switch 4 ch.1",ISS_OFF);
-    IUFillSwitch(&ConnectingSwitchCh2S[3],"CONNECTING_SWITCH_4-2","switch 4 ch.2",ISS_OFF);
-
-    IUFillSwitchVector(&ConnectingSwitchSP,ConnectingSwitchS,0,getDeviceName(),"CONNECTING_SWITCHES-1",
-            "Connect ch.1",POWER_TAB,IP_RW,ISR_NOFMANY,0,IPS_IDLE);
-    IUFillSwitchVector(&ConnectingSwitchCh2SP,ConnectingSwitchCh2S,0,getDeviceName(),"CONNECTING_SWITCHES-2",
-            "Connect ch.2",POWER_TAB,IP_RW,ISR_NOFMANY,0,IPS_IDLE);
-
+    for (int i = 0; i < MAX_POWER_CHANNELS; ++i)
+    {
+        ConnectingSwitchSP[i] = new ISwitchVectorProperty;
+        ParkingSwitchSP[i] = new ISwitchVectorProperty;
+        UnparkSwitchSP[i] = new ISwitchVectorProperty;
+    }
     IUFillSwitch(&ConnectingEnableS[0],"CONNECTING_DISABLE","leave as is",ISS_ON);
     IUFillSwitch(&ConnectingEnableS[1],"CONNECTING_ENABLE","use connect mapping",ISS_OFF);
     IUFillSwitchVector(&ConnectingEnableSP,ConnectingEnableS,0,getDeviceName(),"CONNECTING_SELECT",
             "Connect action",POWER_TAB,IP_RW,ISR_1OFMANY,0,IPS_OK);
-
-    IUFillSwitch(&ParkingSwitchS[0],"PARKING_SWITCH_1-1","switch 1 ch.1",ISS_OFF);
-    IUFillSwitch(&ParkingSwitchCh2S[0],"PARKING_SWITCH_1-2","switch 1 ch.2",ISS_OFF);
-    IUFillSwitch(&ParkingSwitchS[1],"PARKING_SWITCH_2-1","switch 2 ch.1",ISS_OFF);
-    IUFillSwitch(&ParkingSwitchCh2S[1],"PARKING_SWITCH_2-2","switch 2 ch.2",ISS_OFF);
-    IUFillSwitch(&ParkingSwitchS[2],"PARKING_SWITCH_3-1","switch 3 ch.1",ISS_OFF);
-    IUFillSwitch(&ParkingSwitchCh2S[2],"PARKING_SWITCH_3-2","switch 3 ch.2",ISS_OFF);
-    IUFillSwitch(&ParkingSwitchS[3],"PARKING_SWITCH_4-1","switch 4 ch.1",ISS_OFF);
-    IUFillSwitch(&ParkingSwitchCh2S[3],"PARKING_SWITCH_4-2","switch 4 ch.2",ISS_OFF);
-
-    IUFillSwitchVector(&ParkingSwitchSP,ParkingSwitchS,0,getDeviceName(),"PARKING_SWITCHES-1",
-            "Parking ch.1",POWER_TAB,IP_RW,ISR_NOFMANY,0,IPS_IDLE);
-    IUFillSwitchVector(&ParkingSwitchCh2SP,ParkingSwitchCh2S,0,getDeviceName(),"PARKING_SWITCHES-2",
-            "Parking ch.2",POWER_TAB,IP_RW,ISR_NOFMANY,0,IPS_IDLE);
 
     IUFillSwitch(&ParkingEnableS[0],"PARKING_DISABLE","leave as is",ISS_ON);
     IUFillSwitch(&ParkingEnableS[1],"PARKING_ENABLE","use park mapping",ISS_OFF);
     IUFillSwitchVector(&ParkingEnableSP,ParkingEnableS,0,getDeviceName(),"PARKING_SELECT",
             "Park action",POWER_TAB,IP_RW,ISR_1OFMANY,0,IPS_OK);
 
-    IUFillSwitch(&UnparkSwitchS[0],"UNPARK_SWITCH_1-1","switch 1 ch.1",ISS_OFF);
-    IUFillSwitch(&UnparkSwitchCh2S[0],"UNPARK_SWITCH_1-2","switch 1 ch.2",ISS_OFF);
-    IUFillSwitch(&UnparkSwitchS[1],"UNPARK_SWITCH_2-1","switch 2 ch.1",ISS_OFF);
-    IUFillSwitch(&UnparkSwitchCh2S[1],"UNPARK_SWITCH_2-2","switch 2 ch.2",ISS_OFF);
-    IUFillSwitch(&UnparkSwitchS[2],"UNPARK_SWITCH_3-1","switch 3 ch.1",ISS_OFF);
-    IUFillSwitch(&UnparkSwitchCh2S[2],"UNPARK_SWITCH_3-2","switch 3 ch.2",ISS_OFF);
-    IUFillSwitch(&UnparkSwitchS[3],"UNPARK_SWITCH_4-1","switch 4 ch.1",ISS_OFF);
-    IUFillSwitch(&UnparkSwitchCh2S[3],"UNPARK_SWITCH_4-2","switch 4 ch.2",ISS_OFF);
-
-    IUFillSwitchVector(&UnparkSwitchSP,UnparkSwitchS,0,getDeviceName(),"UNPARK_SWITCHES-1",
-            "Unpark ch.1",POWER_TAB,IP_RW,ISR_NOFMANY,0,IPS_IDLE);
-    IUFillSwitchVector(&UnparkSwitchCh2SP,UnparkSwitchCh2S,0,getDeviceName(),"UNPARK_SWITCHES-2",
-            "Unpark ch.2",POWER_TAB,IP_RW,ISR_NOFMANY,0,IPS_IDLE);
-
     IUFillSwitch(&UnparkEnableS[0],"UNPARK_DISABLE","leave as is",ISS_ON);
     IUFillSwitch(&UnparkEnableS[1],"UNPARK_ENABLE","use unpark mapping",ISS_OFF);
     IUFillSwitchVector(&UnparkEnableSP,UnparkEnableS,0,getDeviceName(),"UNPARK_SELECT",
             "Unpark action",POWER_TAB,IP_RW,ISR_1OFMANY,0,IPS_OK);
-
     SetParkDataType(PARK_NONE);
 
     addAuxControls();
@@ -328,107 +297,174 @@ bool USBRelay2::Connect()
     } else // Init OK
         IDMessage(getDeviceName(),"Roof controller initialized\n");
 
-    Startup = true;
-    SetTimer(1000);
+    isConnecting = true;
+    SetTimer(750);
 
     return true;
 }
 
-void USBRelay2::StartupFix()
+void USBRelay2::SetAndUpdatePowerDevs()
 {
-    if (ConnectingEnableS[1].s == ISS_ON && (PowerDeviceT[0].text != NULL && strcmp(PowerDeviceT[0].text,"")!=0))
+    if (!isConnecting)
+        return;
+    isConnecting = false;
+    DefineProperties();
+    if (ConnectingEnableS[1].s == ISS_ON && PowerSwitchSP[0]->sp != NULL)
     {
-        IDMessage(getDeviceName(),"Connect power mapping is enabled");
-        Power(ConnectingSwitchS, NULL, ConnectingSwitchSP.nsp, 1);
-        Power(ConnectingSwitchCh2S, NULL, ConnectingSwitchCh2SP.nsp, 2);
-        UpdateChannels(PowerSwitchSP.nsp,NULL);
+        IDMessage(getDeviceName(),"Connect power mapping is enabled\n");
+        for (int i = 0; PowerSwitchSP[i]->sp != NULL; ++i)
+            Power(ConnectingSwitchS[i], i);
     }
-
-    // Redifine properties to update after loading config
-    DefineProperties(false);
-    DefineProperties(true);
-
+    else
+        for (int i = 0; PowerSwitchSP[i]->sp != NULL; ++i)
+            UpdateChannels(i);
 }
 
 const char * USBRelay2::getDefaultName()
 {
-        return (char *)"USBRelay2 Roof";
+    return (char *)"USBRelay2 Roof";
 }
 
 bool USBRelay2::updateProperties()
 {
     INDI::Dome::updateProperties();
+    DEBUG(INDI::Logger::DBG_DEBUG,strdup("*****Update properties\n"));
 
     if (isConnected())
     {
-        DefineProperties(true);
+        DefineProperties();
         SetupParms();
     } else
     {
-        DefineProperties(false);
+        DeleteProperties();
     }
 
     return true;
 }
 
-void USBRelay2::DefineProperties(bool define)
+void USBRelay2::DefineProperties()
 {
-    if (define)
+    defineSwitch(&ConnectingEnableSP);
+    defineSwitch(&ParkingEnableSP);
+    defineSwitch(&UnparkEnableSP);
+    if (isConnecting)
     {
         defineNumber(&MoveSteppNP);
         defineNumber(&AbsolutePosNP);
-        defineSwitch(&PowerSwitchSP);
-        defineSwitch(&PowerSwitchCh2SP);
         defineNumber(&RoofPropertiesNP);
         defineNumber(&RoofTravelMSNP);
         defineNumber(&RoofLimitNP);
         defineText(&DeviceListTP);
         defineText(&DeviceTestTP);
         defineText(&DeviceSelectTP);
-        defineText(&PowerDeviceTP);
-        defineSwitch(&ConnectingSwitchSP);
-        defineSwitch(&ConnectingSwitchCh2SP);
-        defineSwitch(&ConnectingEnableSP);
-        defineSwitch(&ParkingSwitchSP);
-        defineSwitch(&ParkingSwitchCh2SP);
-        defineSwitch(&ParkingEnableSP);
-        defineSwitch(&UnparkSwitchSP);
-        defineSwitch(&UnparkSwitchCh2SP);
-        defineSwitch(&UnparkEnableSP);
-    }
+        defineText(PowerDeviceTP[0]);
+    }   
     else
     {
-        deleteProperty(MoveSteppNP.name);
-        deleteProperty(AbsolutePosNP.name);
-        deleteProperty(PowerSwitchSP.name);
-        deleteProperty(PowerSwitchCh2SP.name);
-        deleteProperty(RoofPropertiesNP.name);
-        deleteProperty(RoofTravelMSNP.name);
-        deleteProperty(RoofLimitNP.name);
-        deleteProperty(DeviceListTP.name);
-        deleteProperty(DeviceTestTP.name);
-        deleteProperty(DeviceSelectTP.name);
-        deleteProperty(PowerDeviceTP.name);
-        deleteProperty(ConnectingSwitchSP.name);
-        deleteProperty(ConnectingSwitchCh2SP.name);
+        for (int i = 0; i < MAX_POWER_CHANNELS; ++i)
+        {
+            if (PowerDeviceTP[i]->tp != NULL)
+            {
+                DEBUGF(INDI::Logger::DBG_DEBUG,"*****Powerdevice %d, text %s\n", i, PowerDeviceTP[i]->tp->text);
+                DEBUGF(INDI::Logger::DBG_DEBUG,"*****Powerdevice %d, label %s, name %s\n", i, PowerDeviceTP[i]->label, PowerDeviceTP[i]->name);
+            }
+            deleteProperty(PowerDeviceTP[i]->name);
+            deleteProperty(PowerSwitchSP[i]->name);
+            deleteProperty(ConnectingSwitchSP[i]->name);
+            deleteProperty(ParkingSwitchSP[i]->name);
+            deleteProperty(UnparkSwitchSP[i]->name);
+        }
         deleteProperty(ConnectingEnableSP.name);
-        deleteProperty(ParkingSwitchSP.name);
-        deleteProperty(ParkingSwitchCh2SP.name);
         deleteProperty(ParkingEnableSP.name);
-        deleteProperty(UnparkSwitchSP.name);
-        deleteProperty(UnparkSwitchCh2SP.name);
         deleteProperty(UnparkEnableSP.name);
     }
+    bool update = false;
+    for (int i = 0; i < MAX_POWER_CHANNELS; ++i)
+    {
+        if (i == 0)
+        {
+            defineText(PowerDeviceTP[i]);
+        }
+        if (i != MAX_POWER_CHANNELS - 1 && PowerDeviceTP[i+1]->tp != NULL)
+        {
+            update = true;
+            defineText(PowerDeviceTP[i+1]);
+        }
+        else
+            DEBUGF(INDI::Logger::DBG_DEBUG,"*****NOT defining powerdevice %d\n", i);
+    }
+    if (update)
+    {
+        for (int i = 0; i < MAX_POWER_CHANNELS; ++i)
+        {
+            if (PowerSwitchSP[i]->sp != NULL)
+            {
+                DEBUGF(INDI::Logger::DBG_DEBUG,"*****DEFINING powerdevice %d\n", i);
+                defineSwitch(PowerSwitchSP[i]);
+                if (isAdding && !isConnecting)
+                    UpdateChannels(i);
+            }
+        }
+        for (int i = 0; i < MAX_POWER_CHANNELS; ++i)
+        {
+            if (ConnectingSwitchSP[i]->sp != NULL)
+            {
+                defineSwitch(ConnectingSwitchSP[i]);
+            }
+        }
+        defineSwitch(&ConnectingEnableSP);
+        for (int i = 0; i < MAX_POWER_CHANNELS; ++i)
+        {
+            if (ParkingSwitchSP[i]->sp != NULL)
+            {
+                defineSwitch(ParkingSwitchSP[i]);
+            }
+        }
+        defineSwitch(&ParkingEnableSP);
+        for (int i = 0; i < MAX_POWER_CHANNELS; ++i)
+        {
+            if (UnparkSwitchSP[i]->sp != NULL)
+            {
+                defineSwitch(UnparkSwitchSP[i]);
+            }
+        }
+        defineSwitch(&UnparkEnableSP);
+    }
+    isAdding = false;
 }
 
-bool USBRelay2::ISNewNumber (const char *dev, const char *name, double values[], char *names[], int n)
+void USBRelay2::DeleteProperties()
+{
+    for (int i = 0; i < MAX_POWER_CHANNELS; ++i)
+    {
+        deleteProperty(PowerDeviceTP[i]->name);
+        deleteProperty(PowerSwitchSP[i]->name);
+        deleteProperty(ConnectingSwitchSP[i]->name);
+        deleteProperty(ParkingSwitchSP[i]->name);
+        deleteProperty(UnparkSwitchSP[i]->name);
+    }
+
+    deleteProperty(MoveSteppNP.name);
+    deleteProperty(AbsolutePosNP.name);
+    deleteProperty(RoofPropertiesNP.name);
+    deleteProperty(RoofTravelMSNP.name);
+    deleteProperty(RoofLimitNP.name);
+    deleteProperty(DeviceListTP.name);
+    deleteProperty(DeviceTestTP.name);
+    deleteProperty(DeviceSelectTP.name);
+    deleteProperty(ConnectingEnableSP.name);
+    deleteProperty(ParkingEnableSP.name);
+    deleteProperty(UnparkEnableSP.name);
+}
+
+bool USBRelay2::ISNewNumber(const char *dev, const char *name, double values[], char *names[], int n)
 {
     //  first check if it's for our device
     if (strcmp(dev,getDeviceName())==0)
     {
         //  This is for our device
         //  Now lets see if it's something we process here
-        IDLog("USBRelay::ISNewNumber %s\n", name);
+        DEBUGF(INDI::Logger::DBG_DEBUG,"*****USBRelay::ISNewNumber %s\n", name);
 
         if (strcmp(name,MoveSteppNP.name)==0)
         {
@@ -438,8 +474,8 @@ bool USBRelay2::ISNewNumber (const char *dev, const char *name, double values[],
 
             if (values[0] > 0 && values[1] > 0)
             {
-                IDMessage(dev, "Can not step in two directions at the same time, %s",
-                        "set open or close step to zero\n");
+                IDMessage(getDeviceName(), "Can not step in two directions at the same time, %s\n",
+                        "set open or close step to zero");
                 MoveSteppNP.s = IPS_ALERT;
                 return false;
             }
@@ -455,12 +491,18 @@ bool USBRelay2::ISNewNumber (const char *dev, const char *name, double values[],
 
             if (!INDI::DefaultDevice::isSimulation())
             {
-                int ret = usb.OpenClose(isStepOpen ? DeviceSelectT[0].text : DeviceSelectT[1].text, true);
+                int ret = 0;
+                if (isStepOpen)
+                {
+                    ret = usb.OpenCloseChannel(DeviceSelectT[0].text, true);
+                    ret += usb.OpenCloseChannel(DeviceSelectT[1].text, true);
+                }
+                ret += usb.OpenCloseChannel(DeviceSelectT[2].text, true);
                 if (ret != 0)
                     return false;
             }
             double percentOfTravel = (RoofTravelMSN[0].value * 0.01) * (isStepOpen ? values[0] : values[1]);
-            IDMessage(getDeviceName(), "Stepping roof %s, for %6.2f milliseconds",
+            IDMessage(getDeviceName(), "Stepping roof %s, for %6.2f milliseconds\n",
                     isStepOpen ? "open" : "close", percentOfTravel);
             
             gettimeofday(&MotionStart, NULL);
@@ -493,7 +535,7 @@ bool USBRelay2::ISNewNumber (const char *dev, const char *name, double values[],
             IUUpdateNumber(&RoofLimitNP, values, names, n);
             RoofLimitNP.s = IPS_OK;
             
-            if (Startup)
+            if (isConnecting)
             {
                 if (AbsolutePosN[0].value == 100)
                     AbsolutePosN[0].value = RoofLimitN[0].value;
@@ -511,27 +553,40 @@ bool USBRelay2::ISNewNumber (const char *dev, const char *name, double values[],
     return INDI::Dome::ISNewNumber(dev,name,values,names,n);
 }
 
-bool USBRelay2::ISNewText(	const char *dev, const char *name, char *texts[], char *names[], int n)
+bool USBRelay2::ISNewText(const char *dev, const char *name, char *texts[], char *names[], int n)
 {
     if (strcmp(dev,getDeviceName())==0)
     {
         //  This is for our device
         //  Now lets see if it's something we process here
-        IDLog("USBRelay2::ISNewText %s\n", name);
+        DEBUGF(INDI::Logger::DBG_DEBUG,"*****USBRelay2::ISNewText %s\n", name);
+
+        string fullString = name;
+        string subString = "";
+        try {
+            subString = fullString.substr(0,12);
+        } catch (const std::out_of_range& ex) {
+            ; // Nothing to do, expected sometimes when ISNewText is not POWER_DEVICE
+        }
+        DEBUGF(INDI::Logger::DBG_DEBUG,"*****Substr name-substring %s\n", strdup(subString.c_str()));
 
         if (strcmp(name,DeviceTestTP.name)==0)
         {
+            TestingDevice = true;
             // Check for actual device
-            if (!CheckValidDevice(texts, n))
+            if (!CheckValidDevice(texts[0]))
                 return false;
             
+            unsigned int len = static_cast<unsigned int>(strlen(texts[0]));
+            if (len == 0)
+                return false;
+
             IUUpdateText(&DeviceTestTP, texts, names, n);
             
             // Initiate device test, and set timer
-	        TestingDevice = true;
             if (!INDI::DefaultDevice::isSimulation())
             {
-                int ret = usb.OpenClose(DeviceTestT[0].text, true);
+                int ret = usb.OpenCloseChannel(DeviceTestT[0].text, true);
                 if (ret != 0)
                     return false;
             }
@@ -544,8 +599,9 @@ bool USBRelay2::ISNewText(	const char *dev, const char *name, char *texts[], cha
         else if (strcmp(name,DeviceSelectTP.name)==0)
         {
             // Check for valid device
-            if (!CheckValidDevice(texts, n))
-                return false;
+            for (int i = 0; i < n; ++i)
+                if (!CheckValidDevice(texts[i]))
+                    return false;
  
             IUUpdateText(&DeviceSelectTP, texts, names, n);
             DeviceSelectTP.s = IPS_OK;
@@ -553,58 +609,210 @@ bool USBRelay2::ISNewText(	const char *dev, const char *name, char *texts[], cha
             IDSetText(&DeviceSelectTP, NULL);
             return true;
         }
-        else if (strcmp(name,PowerDeviceTP.name)==0)
+        else if (subString == "POWER_DEVICE")
         {
             // Check for valid device
-            if (!CheckValidDevice(texts, n))
+            if (!CheckValidDevice(texts[0]))
                 return false;
   
-            // Check if there is actually something to update
-            bool addPowerDev = false;
-            bool deletePowerDev = false;
-            for (int i = 0; i < n; ++i)
-                // Delete id
-                if (strcmp(texts[i], "")==0 && PowerDeviceT[i].text != NULL)
-                    deletePowerDev = true;
-                // New or updated id
-                else if (strcmp(texts[i],"")!=0 && PowerDeviceT[i].text == NULL)
-                    addPowerDev = true;
-                else if (strcmp(texts[i],"")!=0 && strcmp(texts[i],PowerDeviceT[i].text)!=0)
-                    addPowerDev = true;
-                
-            // Nothing to do
-            if (!addPowerDev && !deletePowerDev)
+            string devString = fullString.substr(13,14);
+            int devNumber;
+            if (std::all_of(devString.begin(), devString.end(), ::isdigit))
+                devNumber = atoi(devString.c_str());
+
+            string input = texts[0];
+            string devName, channelString;
+            int channel;
+            unsigned int len = static_cast<unsigned int>(strlen(texts[0]));
+            if (len != 0)
             {
-                PowerDeviceTP.s = IPS_BUSY;
-                IDSetText(&PowerDeviceTP,NULL);
-                return true;
+                devName = input.substr(0,5);
+                channelString = input.substr(6,7);
+                if (std::all_of(channelString.begin(), channelString.end(), ::isdigit))
+                    channel = atoi(channelString.c_str());
             }
-           
-            int devNbr = 0;
-            // Reorder power devs id and remove empty
-            if (deletePowerDev)
+
+            // POWER_DEVICE remove
+            if (len == 0)
             {
-                int newList = 0;
-                for (int i = 0; i < n; ++i)
+                DEBUGF(INDI::Logger::DBG_DEBUG,"*****Removing device %d\n", devNumber);
+                int i;
+                bool firstOrLast = (devNumber == MAX_POWER_CHANNELS - 1 
+                        || PowerDeviceTP[devNumber + 1]->tp == NULL);
+                for (i = 0; !firstOrLast
+                        && i != MAX_POWER_CHANNELS - 1 
+                        && PowerDeviceTP[i+1]->tp != NULL; ++i)
                 {
-                    if (strcmp(texts[i], "")!=0)
+                    if (i >= devNumber)
                     {
-                        texts[newList] = texts[i];
-                        texts[i] == "";
-                        ++newList;
+                        if (devNumber != MAX_POWER_CHANNELS - 2
+                                && PowerDeviceTP[i+1]->tp != NULL)
+                        {
+                            *PowerSwitchSP[i] = *PowerSwitchSP[i+1];
+                            *ConnectingSwitchSP[i] = *ConnectingSwitchSP[i+1];
+                            *ParkingSwitchSP[i] = *ParkingSwitchSP[i+1];
+                            *UnparkSwitchSP[i] = *UnparkSwitchSP[i+1];
+                            strcpy(PowerSwitchSP[i]->name, ("POWER_SWITCH_" + to_string(i)).c_str());
+                            strcpy(ConnectingSwitchSP[i]->name, ("CONNECT_DEVICE_" + to_string(i)).c_str());
+                            strcpy(ParkingSwitchSP[i]->name, ("PARKING_DEVICE_" + to_string(i)).c_str());
+                            strcpy(UnparkSwitchSP[i]->name, ("UNPARK_DEVICE_" + to_string(i)).c_str());
+                        }
+                        DEBUGF(INDI::Logger::DBG_DEBUG,"*****Reorder at i == %d\n", i);
+                        strcpy(PowerDeviceTP[i]->name, ("POWER_DEVICE_" + to_string(i)).c_str());
+                        strcpy(PowerDeviceTP[i]->label, ("Power device " + to_string(i)).c_str());
+                        strcpy(PowerDeviceTP[i]->tp->label, ("dev " + to_string(i) + " (char5x + i)").c_str());
+                        if (PowerDeviceTP[i+1]->tp->text != NULL)
+                            strcpy(PowerDeviceTP[i]->tp->text, PowerDeviceTP[i+1]->tp->text);
+                        else
+                            PowerDeviceTP[i]->tp->text = NULL;
+                        IDSetText(PowerDeviceTP[i], NULL);
                     }
                 }
-                devNbr = newList;
-                for (int del = devNbr; del < n; ++del)
-                    texts[del] = strdup("");
+                if (!firstOrLast)
+                {
+                    PowerDeviceT[i] = NULL;
+                    PowerDeviceTP[i]->tp = NULL;
+                    if (i == MAX_POWER_CHANNELS - 1 && PowerSwitchSP[i]->sp != NULL)
+                    {
+                        DEBUGF(INDI::Logger::DBG_DEBUG,"*****Cleanup at i == %d, removing switch %d\n", i, i);
+                        PowerSwitchSP[i]->sp = NULL;
+                        ConnectingSwitchSP[i]->sp = NULL;
+                        ParkingSwitchSP[i]->sp = NULL;
+                        UnparkSwitchSP[i]->sp = NULL;
+
+                        PowerDeviceT[i] = new IText;
+                        IUFillText(PowerDeviceT[i], "POWER_DEVICE_NAME"
+                                , ("dev " + to_string(i) + " (char5x + i)").c_str(), "");
+                        IUFillTextVector(PowerDeviceTP[i], PowerDeviceT[i], 1, getDeviceName()
+                                , ("POWER_DEVICE_" + to_string(i)).c_str()
+                                , ("Power device " + to_string(i)).c_str()
+                                , SETUP_TAB, IP_RW, 60, IPS_IDLE);
+                    }
+                    else
+                    {
+                        DEBUGF(INDI::Logger::DBG_DEBUG,"*****Cleanup at i == %d, removing switch %d\n", i, i-1);
+                        PowerSwitchSP[i-1]->sp = NULL;
+                        ConnectingSwitchSP[i-1]->sp = NULL;
+                        ParkingSwitchSP[i-1]->sp = NULL;
+                        UnparkSwitchSP[i-1]->sp = NULL;
+                    }
+
+                    DefineProperties();
+                    return true;
+                }
+                else // "Removing" first or last device
+                {
+                    if (devNumber == MAX_POWER_CHANNELS - 1) // We are not first, but last
+                    {
+                        PowerDeviceTP[MAX_POWER_CHANNELS - 1]->tp->text = NULL;
+                        PowerSwitchSP[MAX_POWER_CHANNELS - 1]->sp = NULL;
+                        ConnectingSwitchSP[MAX_POWER_CHANNELS - 1]->sp = NULL;
+                        ParkingSwitchSP[MAX_POWER_CHANNELS - 1]->sp = NULL;
+                        UnparkSwitchSP[MAX_POWER_CHANNELS - 1]->sp = NULL;
+                        DEBUGF(INDI::Logger::DBG_DEBUG,"*****Remove last switch == %d\n", MAX_POWER_CHANNELS - 1);
+                    }
+                    else // We are first
+                    {
+                        DEBUGF(INDI::Logger::DBG_DEBUG,"*****Did not remove powerdevice %d (firstOrLast)\n", devNumber);
+                        PowerDeviceTP[0]->tp->text = NULL;
+                    }
+                    DefineProperties();
+                    return true;
+                }
             }
-            // Add new id
-            else
+            else if (PowerDeviceTP[devNumber]->tp->text != NULL) // Replace device
             {
-                // Find number of power devices
-                for (devNbr = 0; devNbr < n && strcmp(texts[devNbr], "")!=0; ++devNbr) {}
+                DEBUGF(INDI::Logger::DBG_DEBUG,"*****Replace deviceNbr == %d,  name  == %s, with deviceName == %s\n"
+                        , devNumber, PowerDeviceT[devNumber]->text, texts[0]);
+                PowerSwitchS[devNumber][0].s = ISS_OFF;
+                PowerSwitchS[devNumber][1].s = ISS_ON;
+                strcpy(PowerSwitchSP[devNumber]->name, ("POWER_SWITCH_" + to_string(devNumber)).c_str());
+                strcpy(PowerSwitchSP[devNumber]->label, ("Switch " + devName + " channel " + to_string(channel)).c_str());
+
+                ConnectingSwitchS[devNumber][0].s = ISS_OFF;
+                ConnectingSwitchS[devNumber][1].s = ISS_ON;
+                strcpy(ConnectingSwitchSP[devNumber]->name, ("CONNECT_DEVICE_" + to_string(devNumber)).c_str());
+                strcpy(ConnectingSwitchSP[devNumber]->label, ("Connect dev " + devName + " channel " + to_string(channel)).c_str());
+
+                ParkingSwitchS[devNumber][0].s = ISS_OFF;
+                ParkingSwitchS[devNumber][1].s = ISS_ON;
+                strcpy(ParkingSwitchSP[devNumber]->name, ("PARKING_DEVICE_" + to_string(devNumber)).c_str());
+                strcpy(ParkingSwitchSP[devNumber]->label, ("Park dev " + devName + " channel " + to_string(channel)).c_str());
+
+                UnparkSwitchS[devNumber][0].s = ISS_OFF;
+                UnparkSwitchS[devNumber][1].s = ISS_ON;
+                strcpy(UnparkSwitchSP[devNumber]->name, ("UNPARK_DEVICE_" + to_string(devNumber)).c_str());
+                strcpy(UnparkSwitchSP[devNumber]->label, ("Unpark dev " + devName + " channel " + to_string(channel)).c_str());
             }
-            UpdateDynSwitches(devNbr, deletePowerDev, texts, names, n);
+            else // if (PowerDeviceT[devNumber]->text == NULL)// POWER_DEVICE added
+            {
+                isAdding = true;
+                DEBUGF(INDI::Logger::DBG_DEBUG,"*****Adding device %s, channel %d\n", strdup(devName.c_str()), channel);
+                DEBUGF(INDI::Logger::DBG_DEBUG,"*****devNumber == %d, texts[0] == %s, PowerDeviceTP[%d]->tp->text == %s"
+                        ,devNumber, texts[0], devNumber, PowerDeviceTP[devNumber]->tp->text);
+                int vacant;
+                for (vacant = 0; vacant < MAX_POWER_CHANNELS; ++vacant) 
+                { 
+                    DEBUGF(INDI::Logger::DBG_DEBUG,"*****PowerSwitchSP[%d]->sp == %s\n", vacant, PowerSwitchSP[vacant]->sp != NULL ? "(populated)" : "(vacant)"); 
+                    DEBUGF(INDI::Logger::DBG_DEBUG,"*****PowerDeviceT[%d] == %s\n", vacant, PowerDeviceT[vacant] != NULL ? "(populated)" : "(vacant)");
+                }
+                
+                for (vacant = 0; vacant != MAX_POWER_CHANNELS
+                        && PowerDeviceT[vacant] != NULL; ++vacant) {};
+                
+                --vacant;
+                DEBUGF(INDI::Logger::DBG_DEBUG,"*****Using vacant switch array %d\n", vacant);
+                
+                if (ConnectingEnableSP.nsp == 0)
+                {
+                    ConnectingEnableSP.nsp = 2;
+                    ParkingEnableSP.nsp = 2;
+                    UnparkEnableSP.nsp = 2;
+                }
+                IUFillSwitch(&PowerSwitchS[vacant][0], "POWER_ON_SWITCH", "connect", ISS_OFF);
+                IUFillSwitch(&PowerSwitchS[vacant][1], "POWER_OFF_SWITCH", "disconnect", ISS_ON);
+                IUFillSwitchVector(PowerSwitchSP[devNumber], &PowerSwitchS[vacant][0], 2
+                        , dev, ("POWER_SWITCH_" + to_string(devNumber)).c_str()
+                        , ("Switch " + devName + " channel " + to_string(channel)).c_str()
+                        , MAIN_CONTROL_TAB, IP_RW, ISR_1OFMANY, 60, IPS_IDLE);
+
+                IUFillSwitch(&ConnectingSwitchS[vacant][0], "CONNECT_ON_DEV", "connect", ISS_OFF);
+                IUFillSwitch(&ConnectingSwitchS[vacant][1], "CONNECT_OFF_DEV", "disconnect", ISS_ON);
+                IUFillSwitchVector(ConnectingSwitchSP[devNumber], &ConnectingSwitchS[vacant][0], 2
+                        , dev, ("CONNECT_DEVICE_" + to_string(devNumber)).c_str()
+                        , ("Connect dev " + devName + " channel " + to_string(channel)).c_str()
+                        , POWER_TAB, IP_RW, ISR_1OFMANY, 60, IPS_IDLE);
+
+                IUFillSwitch(&ParkingSwitchS[vacant][0], "PARK_ON_DEV", "connect", ISS_OFF);
+                IUFillSwitch(&ParkingSwitchS[vacant][1], "PARK_OFF_DEV", "disconnect", ISS_ON);
+                IUFillSwitchVector(ParkingSwitchSP[devNumber], &ParkingSwitchS[vacant][0], 2
+                        , dev, ("PARKING_DEVICE_" + to_string(devNumber)).c_str()
+                        , ("Park dev " + devName + " channel " + to_string(channel)).c_str()
+                        , POWER_TAB, IP_RW, ISR_1OFMANY, 60, IPS_IDLE);
+
+                IUFillSwitch(&UnparkSwitchS[vacant][0], "UNPARK_ON_DEV", "connect", ISS_OFF);
+                IUFillSwitch(&UnparkSwitchS[vacant][1], "UNPARK_OFF_DEV", "disconnect", ISS_ON);
+                IUFillSwitchVector(UnparkSwitchSP[devNumber], &UnparkSwitchS[vacant][0], 2
+                        , dev, ("UNPARK_DEVICE_" + to_string(devNumber)).c_str()
+                        , ("Unpark dev " + devName + " channel " + to_string(channel)).c_str()
+                        , POWER_TAB, IP_RW, ISR_1OFMANY, 60, IPS_IDLE);
+             
+                if (vacant != MAX_POWER_CHANNELS - 1)
+                {
+                    PowerDeviceT[vacant + 1] = new IText;
+                    IUFillText(PowerDeviceT[vacant + 1], "POWER_DEVICE_NAME"
+                            , ("dev " + to_string(devNumber + 1) + " (char5x + i)").c_str(), "");
+                    IUFillTextVector(PowerDeviceTP[devNumber + 1], PowerDeviceT[vacant + 1], 1, getDeviceName()
+                            , ("POWER_DEVICE_" + to_string(devNumber + 1)).c_str()
+                            , ("Power device " + to_string(devNumber + 1)).c_str()
+                            , SETUP_TAB, IP_RW, 60, IPS_IDLE);
+                }
+            }
+            IUUpdateText(PowerDeviceTP[devNumber], texts, names, n);
+            PowerDeviceTP[devNumber]->s = IPS_OK;
+            IDSetText(PowerDeviceTP[devNumber], NULL);
+            DefineProperties();
+
             return true;
         }
 
@@ -618,47 +826,54 @@ bool USBRelay2::ISNewSwitch(const char *dev, const char *name, ISState *states, 
     {
         // This is for our device
         // Now lets see if it's something we process hers
-        IDLog("USBRelay2::ISNewSwitch %s\n", name);
+        DEBUGF(INDI::Logger::DBG_DEBUG,"*****USBRelay2::ISNewSwitch %s\n", name);
 
         ISwitchVectorProperty *updateSP = NULL;
-        if (strcmp(name,PowerSwitchSP.name)==0)
+        if (strcmp(name,UnparkEnableSP.name)==0)
         {
-            if (!Power(PowerSwitchS, states, n, 1))
-                return false;
-            updateSP = &PowerSwitchSP;
-        }
-        else if (strcmp(name,PowerSwitchCh2SP.name)==0)
-        {
-            if (!Power(PowerSwitchCh2S, states, n, 2))
-                return false;
-            updateSP = &PowerSwitchCh2SP;
-        }
-        else if (strcmp(name,ConnectingSwitchSP.name)==0)
-            updateSP = &ConnectingSwitchSP;
-        else if (strcmp(name,ConnectingSwitchCh2SP.name)==0)
-            updateSP = &ConnectingSwitchCh2SP;
-        else if (strcmp(name,UnparkSwitchSP.name)==0)
-            updateSP = &UnparkSwitchSP;
-        else if (strcmp(name,UnparkSwitchCh2SP.name)==0)
-            updateSP = &UnparkSwitchCh2SP;
-        else if (strcmp(name,ParkingSwitchSP.name)==0)
-            updateSP = &ParkingSwitchSP;
-        else if (strcmp(name,ParkingSwitchCh2SP.name)==0)
-            updateSP = &ParkingSwitchCh2SP;
-        else if (strcmp(name,UnparkEnableSP.name)==0)
+            UnparkEnableSP.nsp = 2;
             updateSP = &UnparkEnableSP;
+        }
         else if (strcmp(name,ParkingEnableSP.name)==0)
+        {
+            ParkingEnableSP.nsp = 2;
             updateSP = &ParkingEnableSP;
+        }
         else if (strcmp(name,ConnectingEnableSP.name)==0)
+        {
+            ConnectingEnableSP.nsp = 2;
             updateSP = &ConnectingEnableSP;
-        
+        }
+        else
+        {
+            for (int i = 0; i < MAX_POWER_CHANNELS && PowerSwitchSP[i]->sp != NULL; ++i)
+            {
+                DEBUGF(INDI::Logger::DBG_DEBUG, "*****Checking switch nbr == %d", i);
+                if (strcmp(name,PowerSwitchSP[i]->name)==0)
+                {
+                    IUUpdateSwitch(PowerSwitchSP[i], states, names, n);
+                    if (!Power(PowerSwitchS[i], i))
+                        return false;
+                    updateSP = PowerSwitchSP[i];
+                }
+                if (strcmp(name,ConnectingSwitchSP[i]->name)==0)
+                    updateSP = ConnectingSwitchSP[i];
+                else if (strcmp(name,UnparkSwitchSP[i]->name)==0)
+                    updateSP = UnparkSwitchSP[i];
+                else if (strcmp(name,ParkingSwitchSP[i]->name)==0)
+                    updateSP = ParkingSwitchSP[i];
+            }
+        }
         if (updateSP != NULL)
         {
             IUUpdateSwitch(updateSP, states, names, n);
             updateSP->s = IPS_OK;
-            IDSetSwitch(updateSP,NULL);
+            DEBUGF(INDI::Logger::DBG_DEBUG, "*****SetSwitch->name == %s", updateSP->name);
+            IDSetSwitch(updateSP, NULL);
             return true;
         }
+        else
+            DEBUG(INDI::Logger::DBG_DEBUG, "*****SetSwitch updateSP == NULL!");
     }
     return INDI::Dome::ISNewSwitch(dev,name,states,names,n);
 }
@@ -667,7 +882,6 @@ bool USBRelay2::Disconnect()
 {
     return true;
 }
-
 
 void USBRelay2::TimerHit()
 {
@@ -711,13 +925,11 @@ void USBRelay2::TimerHit()
 	    if (Abort())
 	        TestingDevice = false;
     }
-    // Startup hack
-    else if (Startup)
+    // Startup, update after loading config
+    else if (isConnecting)
     {
-        StartupFix();
-        Startup = false;
+        SetAndUpdatePowerDevs();
     }
-
 }
 
 IPState USBRelay2::Move(DomeDirection dir, DomeMotionCommand operation)
@@ -782,7 +994,13 @@ IPState USBRelay2::Move(DomeDirection dir, DomeMotionCommand operation)
 
         // usb.OpenClose will return != 0 if USBInterface cannot open all channels for device
         bool open = (dir == DOME_CW) ? true : false;
-        int ret = usb.OpenClose(open ? DeviceSelectT[0].text : DeviceSelectT[1].text, true);
+        int ret = 0;
+        if (open)
+        {
+            ret = usb.OpenCloseChannel(DeviceSelectT[0].text, true);
+            ret += usb.OpenCloseChannel(DeviceSelectT[1].text, true);
+        }
+        ret += usb.OpenCloseChannel(DeviceSelectT[2].text, true);
         if (ret != 0)
         {
             IDMessage(getDeviceName(),"Is open and close devices connected?\n");
@@ -802,14 +1020,14 @@ IPState USBRelay2::Move(DomeDirection dir, DomeMotionCommand operation)
 IPState USBRelay2::Park()
 {    
     IDMessage(getDeviceName(),"USBRelay2 is parking...\n");
-    IsParkingAction = true;
+    isParkingAction = true;
     return Move(DOME_CCW, MOTION_START);
 }
 
 IPState USBRelay2::UnPark()
 {
     IDMessage(getDeviceName(),"USBRelay2 is unparking...\n");
-    IsParkingAction = true;
+    isParkingAction = true;
     return Move(DOME_CW, MOTION_START);
 }
 
@@ -820,7 +1038,7 @@ bool USBRelay2::Abort()
     {
         if (!INDI::DefaultDevice::isSimulation())
         {
-	        int ret = usb.OpenClose(DeviceTestT[0].text, false);
+	        int ret = usb.OpenCloseChannel(DeviceTestT[0].text, false);
 	        if (ret != 0)
 	            return false;
         }
@@ -834,9 +1052,13 @@ bool USBRelay2::Abort()
     {
         int ret;
         if (MoveSteppN[0].value > 0)
-            ret = usb.OpenClose(DeviceSelectT[0].text, false);
+        {
+            ret = usb.OpenCloseChannel(DeviceSelectT[2].text, false);
+            ret += usb.OpenCloseChannel(DeviceSelectT[0].text, false);
+            ret += usb.OpenCloseChannel(DeviceSelectT[1].text, false);
+        }
         else 
-            ret = usb.OpenClose(DeviceSelectT[1].text, false);
+            ret = usb.OpenCloseChannel(DeviceSelectT[2].text, false);
         if (ret != 0 && !INDI::DefaultDevice::isSimulation())
             return false;
         else {
@@ -847,13 +1069,13 @@ bool USBRelay2::Abort()
     }
 
     bool abortOpen;
-    if (DomeMotionS[DOME_CW].s == ISS_ON && DomeMotionS[DOME_CCW].s == ISS_OFF)
+    if (DomeMotionS[DOME_CW].s == ISS_ON && DomeMotionS[DOME_CCW].s == ISS_OFF) 
         abortOpen = true;
     else if (DomeMotionS[DOME_CCW].s == ISS_ON && DomeMotionS[DOME_CW].s == ISS_OFF)
         abortOpen = false;
     else
     {
-        IDMessage(getDeviceName(), "Could not abort, no roof motion...");
+        IDMessage(getDeviceName(), "Could not abort, no roof motion...\n");
         return false;
     }
 
@@ -865,53 +1087,48 @@ bool USBRelay2::Abort()
     }
 
     // Abort normal motion (Park, Open - Close)
-    int ret = usb.OpenClose(abortOpen ? DeviceSelectT[0].text : DeviceSelectT[1].text, false);
+    int ret = usb.OpenCloseChannel(DeviceSelectT[2].text, false);
+    if (abortOpen)
+    {
+        ret += usb.OpenCloseChannel(DeviceSelectT[0].text, false);
+        ret += usb.OpenCloseChannel(DeviceSelectT[1].text, false);
+    }
     if (ret != 0)
     {
         IDMessage(getDeviceName(),"There was an error trying to stopp %s of roof\n", 
                 (abortOpen ? "opening" : "closing") );
         return false;
     }
-        
     return StopParkingAction(abortOpen ? DOME_CW : DOME_CCW);
 }
 
-bool USBRelay2::Power(ISwitch powerSwitch[], ISState *newStates, int n, int channel)
+bool USBRelay2::Power(ISwitch powerSwitch[], int devNbr)
 {
-    IDMessage(getDeviceName(),"Powering on / off devices on channel %d",channel);
-
-    for (int i = 0; i < n; ++i)
+    ISState onOff;
+    onOff = powerSwitch[0].s;
+    
+    IDMessage(getDeviceName(),"Powering %s device %s\n"
+            ,onOff == ISS_ON ? "on" : "off", PowerDeviceT[devNbr]->text);
+    if (!INDI::DefaultDevice::isSimulation())
     {
-        if (newStates == NULL || powerSwitch[i].s != newStates[i])
-        {
-            ISState onOff;
-            // We are not calling Power from ISNewSwitch if newStates == NULL
-            if (newStates == NULL)
-                onOff = powerSwitch[i].s;
-            else
-                onOff = newStates[i];
-            
-            if (!INDI::DefaultDevice::isSimulation())
-            {
-                int ret = usb.OpenCloseChannel(PowerDeviceT[i].text, onOff == ISS_ON ? true : false, channel);
-                if (ret != 0)
-                    return false;
-            }
-            else
-            {
-                if (channel == 1)
-                    PowerSwitchS[i].s = onOff;
-                else
-                    PowerSwitchCh2S[i].s = onOff;
-            }
-        }
+        int ret = usb.OpenCloseChannel(PowerDeviceT[devNbr]->text, onOff == ISS_ON ? true : false);
+        DEBUGF(INDI::Logger::DBG_DEBUG,"*****Powering %s device number %d with name %s\n"
+                , onOff == ISS_ON ? "on" : "off", devNbr, PowerDeviceT[devNbr]->text);
+        if (ret != 0)
+            return false;
     }
-    // If simulatin we assume cannelstatus is as intended
+    else
+    {
+        PowerSwitchS[devNbr][0].s = onOff;
+        PowerSwitchS[devNbr][1].s = onOff == ISS_ON ? ISS_OFF : ISS_ON;
+        PowerSwitchSP[devNbr]->s = IPS_OK;
+    }
+    // If simulatin we assume channelstatus is as intended
     if (INDI::DefaultDevice::isSimulation())
     {
-        IDSetSwitch(&PowerSwitchSP, NULL);
-        IDSetSwitch(&PowerSwitchCh2SP, NULL);
+        IDSetSwitch(PowerSwitchSP[devNbr], NULL);
     }
+    UpdateChannels(devNbr);
     return true;
 }
 
@@ -984,23 +1201,18 @@ bool USBRelay2::StopParkingAction(int dir)
     if (fullOpenLimitSwitch == ISS_ON || fullClosedLimitSwitch == ISS_ON)
     {
         SetParked(isClosing);
-        if (!IsParkingAction) // We are not parking, only moving
+        if (!isParkingAction) // We are not parking, only moving
             return true;
-        else if (isClosing && ParkingEnableS[1].s == ISS_ON)
+        for (int i = 0; PowerSwitchSP[i]->sp != NULL; ++i)
         {
-            Power(ParkingSwitchS, NULL, ParkingSwitchSP.nsp, 1);
-            Power(ParkingSwitchCh2S, NULL, ParkingSwitchCh2SP.nsp, 2);
-            UpdateChannels(PowerSwitchSP.nsp,NULL);
-        } 
-        else if (!isClosing && UnparkEnableS[1].s == ISS_ON)
-        {
-            Power(UnparkSwitchS, NULL, UnparkSwitchSP.nsp, 1);
-            Power(UnparkSwitchCh2S, NULL, UnparkSwitchCh2SP.nsp, 2);
-            UpdateChannels(PowerSwitchSP.nsp,NULL);
+            if (isClosing && ParkingEnableS[1].s == ISS_ON)
+                Power(ParkingSwitchS[i], i);
+            else if (!isClosing && UnparkEnableS[1].s == ISS_ON)
+                Power(UnparkSwitchS[i], i);
         }
         IDMessage(getDeviceName(),"Roof is %s.\n", isClosing ? "closed" : "opened");
         DomeMotionSP.s = IPS_OK;
-        IsParkingAction = false;
+        isParkingAction = false;
         return true;
     }
     else
@@ -1009,37 +1221,82 @@ bool USBRelay2::StopParkingAction(int dir)
         fullOpenLimitSwitch   = ISS_OFF;
         fullClosedLimitSwitch = ISS_OFF;
         DomeMotionSP.s = IPS_ALERT;
-        IsParkingAction = false;
+        isParkingAction = false;
         SetParked(!isClosing ? true : false);
         return false;
     }
 }
 
-bool USBRelay2::CheckValidDevice(char *texts[], int n)
+bool USBRelay2::CheckValidDevice(char* text)
 {
-    for (int i = 0; i < n; ++i)
+    DEBUGF(INDI::Logger::DBG_DEBUG,"*****CheckValid texts = %s\n", text);
+    unsigned int len = static_cast<unsigned int>(strlen(text));
+    if (len == 7 || len == 0)
     {
-        unsigned int len = static_cast<unsigned int>(strlen(texts[i]));
-        if (len == 5 || len == 0)
+        DEBUGF(INDI::Logger::DBG_DEBUG,"*****CheckValid len = %d\n", len);
+        if (len == 0)
+            return true;
+            
+        string fullString = text;
+        string devName = fullString.substr(0,5);
+        string channelString = fullString.substr(6,7);
+        int channel;
+        if (std::all_of(channelString.begin(), channelString.end(), ::isdigit))
+            channel = atoi(channelString.c_str());
+        else
         {
-            if (len == 0)
-                return true;
-            bool ret = usb.TestConnect(texts[i]);
-            if (!ret && !INDI::DefaultDevice::isSimulation())
-            {
-                IDMessage(getDeviceName(),"Use device test to see if dev name is correct");
-                IDMessage(getDeviceName(),"Failed to connect to device %s",texts[i]);
-                return false;
-            }
-            else
-                IDMessage(getDeviceName(),"%s status OK",texts[i]);
+            IDMessage(getDeviceName(), "Channel == %s, not a number\n", channelString.c_str());
+            return false;
+        }
+
+        int nbrOfChannels;
+        if (channel < 1 || channel > 9)
+        {
+            IDMessage(getDeviceName(), "You can not spessify channel < 1, or > 8. Channel %d is not valid\n", channel);
+            return false;
+        }
+        else if (!INDI::DefaultDevice::isSimulation() && !usb.TestConnect(strdup(devName.c_str())))
+        {
+            IDMessage(getDeviceName(),"Failed to connect to device %s, channel %d\n",devName.c_str(), channel);
+            IDMessage(getDeviceName(),"Use device test to see if dev name is correct\n");
+            return false;
+        } 
+        else if (!INDI::DefaultDevice::isSimulation() 
+                && (nbrOfChannels = usb.GetNumberOfChannelsForDevice(strdup(devName.c_str()))) < channel)
+        {
+            IDMessage(getDeviceName(), "Failed to connect to device %s, channel %d\n",devName.c_str(), channel);
+            IDMessage(getDeviceName(), "Device %s, has only %d channels\n",devName.c_str(), nbrOfChannels);
+            return false;
         }
         else
         {
-            IDMessage(getDeviceName(),"Device has name with a length of %u, need to be 5",len);
-            IDMessage(getDeviceName(),"%s is not a valid device name.",texts[i]);
-            return false;
+            int i;
+            for (i = 0; !TestingDevice 
+                    && i != MAX_POWER_CHANNELS - 1 
+                    && PowerDeviceTP[i+1]->tp != NULL; ++i)
+            {
+                if (strcmp(PowerDeviceTP[i]->tp->text, text)==0)
+                {
+                    IDMessage(getDeviceName(), "Device %s, channel %d is valid, but allready configured as a powerdevice %d\n"
+                            , devName.c_str(), channel, i);
+                    return false;
+                }
+            }
+            if (i == MAX_POWER_CHANNELS)
+            {
+                IDMessage(getDeviceName(), "Device %s, channel %d is valid, but there is only room for %d powerdevices\n"
+                        ,devName.c_str(), channel, MAX_POWER_CHANNELS);
+                return false;
+            }
+            else if (!isConnecting)
+                IDMessage(getDeviceName(), "Device %s, channel %d is a valid device\n",devName.c_str(), channel);
         }
+    }
+    else
+    {
+        IDMessage(getDeviceName(),"Device has info with a length of %u, need to be 7. Dev name (5x char) + ([space]Channel)\n",len);
+        IDMessage(getDeviceName(),"%s is not a valid device name. Example is (ABCDE 1)\n",text);
+        return false;
     }
     return true;
 }
@@ -1060,100 +1317,34 @@ vector<const char*> USBRelay2::getDevices()
     return usb.GetDevices();
 }
 
-void USBRelay2::UpdateChannels(int devNbr, char *texts[])
+void USBRelay2::UpdateChannels(int devNbr)
 {
     if (INDI::DefaultDevice::isSimulation())
         return;
-    for (int j = 0; j < devNbr; ++j)
-    {
-        char *devName = texts == NULL ? PowerDeviceT[j].text : texts[j];
-        vector<unsigned int> channelStatus = usb.GetChannelsForDevice(devName,2);
-        vector<unsigned int>::iterator it = channelStatus.begin();
-        for (int i = 0; it != channelStatus.end(); ++it, ++i)
-        {
-            ISState sw = *it != 0 ? ISS_ON : ISS_OFF;
-            if (i % 2 == 0)
-                PowerSwitchS[j].s = sw;
-            else
-                PowerSwitchCh2S[j].s = sw;
-        }
+
+    string input = PowerDeviceT[devNbr]->text;
+    string channelString;
+    try {
+        channelString = input.substr(6,7);
+    } catch (const std::out_of_range& ex) {
+        return;
     }
-    IDSetSwitch(&PowerSwitchSP, NULL);
-    IDSetSwitch(&PowerSwitchCh2SP, NULL);
-    IDMessage(getDeviceName(), "Updated power switch channel status");
-}
+    int channel;
+    if (std::all_of(channelString.begin(), channelString.end(), ::isdigit))
+        channel = atoi(channelString.c_str());
+    else
+        return;
+    vector<bool> channelStatus = usb.GetChannelsForDevice(strdup(input.c_str()));
+    vector<bool>::iterator it = channelStatus.begin();
+    int i = 1;
+    for (; it != channelStatus.end() && i < channel; ++it, ++i) {};
 
-void USBRelay2::UpdateDynSwitches(int devNbr, bool deletePowerDev, char *texts[], char *names[], int n)
-{
-    // Fill text vector and update
-    if (devNbr != 5)
-    {
-        if (deletePowerDev) // We are deleting power device. Update vector before 'Fill' POWER_DEVICES
-            IUUpdateText(&PowerDeviceTP, texts, names, n);
-        
-        vector<ISwitchVectorProperty> svToUpdate;
-        devNbr = devNbr < MAX_POWER_DEVS ? devNbr : MAX_POWER_DEVS;
+    DEBUGF(INDI::Logger::DBG_DEBUG, "*****Channel == %d, has state = %s. Device is %s", i, *it ? "true" : "false", input.c_str());
 
-        // Update main tab switches
-        IUFillSwitchVector(&PowerSwitchSP, PowerSwitchS, devNbr, getDeviceName(),"POWER_SWITCHES-1",
-                "Power ch.1",MAIN_CONTROL_TAB,IP_RW,ISR_NOFMANY,0,IPS_IDLE);
-        IUFillSwitchVector(&PowerSwitchCh2SP,PowerSwitchCh2S,devNbr,getDeviceName(),"POWER_SWITCHES-2",
-                "Power ch.2","Main Control",IP_RW,ISR_NOFMANY,0,IPS_IDLE);
-        UpdateChannels(devNbr,texts);
-        svToUpdate.push_back(PowerSwitchSP);
-        svToUpdate.push_back(PowerSwitchCh2SP);
-
-        // Update Power tab switches
-        // Connecting
-        IUFillSwitchVector(&ConnectingSwitchSP,ConnectingSwitchS,devNbr,getDeviceName(),
-                "CONNECTING_SWITCHES-1","Connecting ch.1",POWER_TAB,IP_RW,ISR_NOFMANY,0,IPS_IDLE);
-        IUFillSwitchVector(&ConnectingSwitchCh2SP,ConnectingSwitchCh2S,devNbr,getDeviceName(),
-                "CONNECTING_SWITCHES-2","Connecting ch.2",POWER_TAB,IP_RW,ISR_NOFMANY,0,IPS_IDLE);
-        IUFillSwitchVector(&ConnectingEnableSP,ConnectingEnableS,(devNbr != 0 ? 2: 0),getDeviceName(),
-                "CONNECTING_SELECT","Connect action",POWER_TAB,IP_RW,ISR_1OFMANY,0,IPS_OK);
-        svToUpdate.push_back(ConnectingSwitchSP);
-        svToUpdate.push_back(ConnectingSwitchCh2SP);
-        svToUpdate.push_back(ConnectingEnableSP);
-
-        // Parking
-        IUFillSwitchVector(&ParkingSwitchSP,ParkingSwitchS,devNbr,getDeviceName(),
-                "PARKING_SWITCHES-1","Parking ch.1",POWER_TAB,IP_RW,ISR_NOFMANY,0,IPS_IDLE);
-        IUFillSwitchVector(&ParkingSwitchCh2SP,ParkingSwitchCh2S,devNbr,getDeviceName(),
-                "PARKING_SWITCHES-2","Parking ch.2",POWER_TAB,IP_RW,ISR_NOFMANY,0,IPS_IDLE);
-        IUFillSwitchVector(&ParkingEnableSP,ParkingEnableS,(devNbr != 0 ? 2: 0),getDeviceName(),
-                "PARKING_SELECT","Park action",POWER_TAB,IP_RW,ISR_1OFMANY,0,IPS_OK);
-        svToUpdate.push_back(ParkingSwitchSP);
-        svToUpdate.push_back(ParkingSwitchCh2SP);
-        svToUpdate.push_back(ParkingEnableSP);
-
-        // Unpark
-        IUFillSwitchVector(&UnparkSwitchSP,UnparkSwitchS,devNbr,getDeviceName(),
-                "UNPARK_SWITCHES-1","Unpark ch.1",POWER_TAB,IP_RW,ISR_NOFMANY,0,IPS_IDLE);
-        IUFillSwitchVector(&UnparkSwitchCh2SP,UnparkSwitchCh2S,devNbr,getDeviceName(),
-                "UNPARK_SWITCHES-2","Unpark ch.2",POWER_TAB,IP_RW,ISR_NOFMANY,0,IPS_IDLE);
-        IUFillSwitchVector(&UnparkEnableSP,UnparkEnableS,(devNbr != 0 ? 2 : 0),getDeviceName(),
-                "UNPARK_SELECT","Unpark action",POWER_TAB,IP_RW,ISR_1OFMANY,0,IPS_OK);
-        svToUpdate.push_back(UnparkSwitchSP);
-        svToUpdate.push_back(UnparkSwitchCh2SP);
-        svToUpdate.push_back(UnparkEnableSP);
-        
-        vector<ISwitchVectorProperty>::iterator it = svToUpdate.begin();
-        for (; it != svToUpdate.end(); ++it)
-        {
-            deleteProperty(&*it->name);
-            defineSwitch(&*it);
-        }
-
-        // Update Calib tab - POWER_DEVICES
-        devNbr = devNbr != MAX_POWER_DEVS ? devNbr + 1 : MAX_POWER_DEVS;
-        IUFillTextVector(&PowerDeviceTP, PowerDeviceT, devNbr, getDeviceName(),
-            "POWER_DEVICES","Power devices",SETUP_TAB,IP_RW,60,IPS_OK);
-        
-        if (!deletePowerDev) // We are adding power device. Update vector after 'Fill' POWER_DEVICES
-            IUUpdateText(&PowerDeviceTP, texts, names, n);
-
-        IDSetText(&PowerDeviceTP,NULL);
-        deleteProperty(PowerDeviceTP.name);
-        defineText(&PowerDeviceTP);
-    }
+    ISState sw = *it ? ISS_ON : ISS_OFF;
+    PowerSwitchS[devNbr][0].s = sw;
+    PowerSwitchS[devNbr][1].s = sw == ISS_ON ? ISS_OFF : ISS_ON;
+    PowerSwitchSP[devNbr]->s = IPS_OK;
+    IDSetSwitch(PowerSwitchSP[devNbr], NULL);
+    DEBUGF(INDI::Logger::DBG_DEBUG, "*****Updated power switch channel status for powerdevice %s\n", input.c_str());
 }

@@ -33,17 +33,20 @@ class USBInterface
 
     USBInterface();
 
-    const unsigned int bits[8] = {0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08};
+    const unsigned int bits[8] = {1,2,4,8,16,32,64,128};
     int Init();
     bool TestConnect(char* devSerial);
     vector<const char*> GetDevices();
-    vector<unsigned int> GetChannelsForDevice(char* devSerial, int numChannels);
-    int OpenClose(char* serial, bool open);
-    int OpenCloseChannel(char* serial, bool open, int channel);
+    int GetNumberOfChannelsForDevice(char* devSerial);
+    vector<bool> GetChannelsForDevice(char* devText);
+    int OpenClose(char* devText, bool open);
+    int OpenCloseChannel(char* devText, bool open);
 
     ~USBInterface();
 
     private:
+    char* GetSerialFromDevice(char* devText);
+    int GetChannelFromDevice(char* devText);
     pusb_relay_device_info_t dev_enum;
 
 };

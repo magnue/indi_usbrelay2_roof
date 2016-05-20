@@ -19,7 +19,6 @@
  the Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
  Boston, MA 02110-1301, USA.
 *******************************************************************************/
-
 #ifndef USBRelay2_H
 #define USBRelay2_H
 
@@ -29,8 +28,11 @@
 /*  Some headers we need */
 #include <math.h>
 #include <sys/time.h>
+#include <vector>
+using std::vector;
 
-#define MAX_POWER_DEVS 4
+#define MAX_POWER_CHANNELS  10
+#define CHANNEL_STATES      2
 
 class USBRelay2 : public INDI::Dome
 {
@@ -41,8 +43,8 @@ class USBRelay2 : public INDI::Dome
 
         USBInterface usb;
 
-        bool ISNewNumber (const char *dev, const char *name, double values[], char *names[], int n);
-        bool ISNewText(	const char *dev, const char *name, char *texts[], char *names[], int n);
+        bool ISNewNumber(const char *dev, const char *name, double values[], char *names[], int n);
+        bool ISNewText(const char *dev, const char *name, char *texts[], char *names[], int n);
         bool ISNewSwitch(const char *dev, const char *name, ISState *states, char *names[], int num);
         bool saveConfigItems(FILE *fp);
         virtual bool initProperties();
@@ -71,11 +73,8 @@ class USBRelay2 : public INDI::Dome
         INumberVectorProperty AbsolutePosNP;
         INumber AbsolutePosN[1];
 
-        ISwitchVectorProperty PowerSwitchSP;
-        ISwitch PowerSwitchS[MAX_POWER_DEVS];
-
-        ISwitchVectorProperty PowerSwitchCh2SP;
-        ISwitch PowerSwitchCh2S[MAX_POWER_DEVS];
+        ISwitchVectorProperty* PowerSwitchSP        [MAX_POWER_CHANNELS];
+        ISwitch PowerSwitchS                        [MAX_POWER_CHANNELS]    [CHANNEL_STATES];
 
         // Calibration Tab
         ITextVectorProperty DeviceListTP;
@@ -85,10 +84,10 @@ class USBRelay2 : public INDI::Dome
         IText DeviceTestT[1];
 
         ITextVectorProperty DeviceSelectTP;
-        IText DeviceSelectT[2];
+        IText DeviceSelectT[3];
 
-        ITextVectorProperty PowerDeviceTP;
-        IText PowerDeviceT[MAX_POWER_DEVS];
+        ITextVectorProperty* PowerDeviceTP          [MAX_POWER_CHANNELS];
+        IText* PowerDeviceT                         [MAX_POWER_CHANNELS]    { NULL };
 
         INumberVectorProperty RoofPropertiesNP;
         INumber RoofPropertiesN[2];
@@ -100,29 +99,20 @@ class USBRelay2 : public INDI::Dome
         INumber RoofLimitN[2];
 
         // Power Tab
-        ISwitchVectorProperty ConnectingSwitchSP;
-        ISwitch ConnectingSwitchS[MAX_POWER_DEVS];
-
-        ISwitchVectorProperty ConnectingSwitchCh2SP;
-        ISwitch ConnectingSwitchCh2S[MAX_POWER_DEVS];
+        ISwitchVectorProperty* ConnectingSwitchSP   [MAX_POWER_CHANNELS];
+        ISwitch ConnectingSwitchS                   [MAX_POWER_CHANNELS]    [CHANNEL_STATES];
 
         ISwitchVectorProperty ConnectingEnableSP;
         ISwitch ConnectingEnableS[2];
 
-        ISwitchVectorProperty ParkingSwitchSP;
-        ISwitch ParkingSwitchS[MAX_POWER_DEVS];
-
-        ISwitchVectorProperty ParkingSwitchCh2SP;
-        ISwitch ParkingSwitchCh2S[MAX_POWER_DEVS];
+        ISwitchVectorProperty* ParkingSwitchSP      [MAX_POWER_CHANNELS];
+        ISwitch ParkingSwitchS                      [MAX_POWER_CHANNELS]    [CHANNEL_STATES];
 
         ISwitchVectorProperty ParkingEnableSP;
         ISwitch ParkingEnableS[2];
 
-        ISwitchVectorProperty UnparkSwitchSP;
-        ISwitch UnparkSwitchS[MAX_POWER_DEVS];
-
-        ISwitchVectorProperty UnparkSwitchCh2SP;
-        ISwitch UnparkSwitchCh2S[MAX_POWER_DEVS];
+        ISwitchVectorProperty* UnparkSwitchSP       [MAX_POWER_CHANNELS];
+        ISwitch UnparkSwitchS                       [MAX_POWER_CHANNELS]    [CHANNEL_STATES];
 
         ISwitchVectorProperty UnparkEnableSP;
         ISwitch UnparkEnableS[2];
@@ -135,27 +125,26 @@ class USBRelay2 : public INDI::Dome
         double MotionRequest;
         struct timeval MotionStart;
         double AbsAtStart;
-        bool Startup;
-        bool DoFix;
-        void StartupFix();
+        bool isConnecting;
+        bool isAdding;
+        void SetAndUpdatePowerDevs();
         bool SetupParms();
-        void DefineProperties(bool define);
+        void DefineProperties();
+        void DeleteProperties();
 
-        bool Power(ISwitch powerSwitch[], ISState *newStates, int n, int channel);
-        void UpdateDynSwitches(int devNbr, bool deletePowerDev, char *texts[], char *names[], int n);
+        bool Power(ISwitch powerSwitch[], int devNbr);
         vector<const char*> getDevices();
-        void UpdateChannels(int devNbr, char *texts[]);
+        void UpdateChannels(int devNbr);
         bool TestDevice(char *devName);
-        bool CheckValidDevice(char *texts[], int n);
+        bool CheckValidDevice(char* text);
         
-        bool IsParkingAction;
+        bool isParkingAction;
 	    bool TestingDevice;
         bool MoveStepp;
 
         float CalcTimeLeft(timeval);
         void setAbsulutePosition();
-        bool  StopParkingAction(int dir);
+        bool StopParkingAction(int dir);
         void ParkedStatus(bool status);
 };
-
 #endif

@@ -1,6 +1,6 @@
 <devGroup group="Domes">
 	<device label="USBRelay2 Roof">
         <driver name="USBRelay2 Roof">indi_usbrelay2_roof</driver>
-        <version>0.2</version>
+        <version>0.3</version>
 	</device>
 </devGroup>
