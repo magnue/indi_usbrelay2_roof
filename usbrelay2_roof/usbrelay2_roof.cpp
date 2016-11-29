@@ -953,6 +953,11 @@ IPState USBRelay2::Move(DomeDirection dir, DomeMotionCommand operation)
             IDMessage(getDeviceName(),"Roof is already fully closed.\n");
             return IPS_ALERT;
         }
+        else if (dir == DOME_CCW && INDI::Dome::isLocked())
+        {
+            DEBUG(INDI::Logger::DBG_WARNING, "Cannot close dome when mount is locking. See: Telescope parkng policy, in options tab");
+            return IPS_ALERT;
+        }
         // We are changing direction! 
         // Must abort current motion before setting new direction to avoid short circut
         else if ( (DomeMotionS[DOME_CW].s == ISS_ON && dir == DOME_CCW)
@@ -1188,9 +1193,21 @@ void USBRelay2::setAbsulutePosition()
         absMS = AbsAtStart + (MotionRequest - timeleft); 
     else
         absMS = AbsAtStart - (MotionRequest - timeleft);
-    AbsolutePosN[0].value = (100 / RoofTravelMSN[0].value) * absMS;
-    AbsolutePosNP.s = IPS_OK;
-    IDSetNumber(&AbsolutePosNP, NULL);
+
+    double newAbs = (100 / RoofTravelMSN[0].value) * absMS;
+    double diff = absTicker - newAbs;
+
+
+    // We do not want to update the ApbsolutePos property for any amount of changes.
+    // Avoids client being spammed on low speed remot connections.
+    if (diff >= 500 || diff <= -500 || timeleft <= 500)
+    {
+        AbsolutePosN[0].value = newAbs;
+        AbsolutePosNP.s = IPS_OK;
+        IDSetNumber(&AbsolutePosNP, NULL);
+        absTicker = 0;
+    } else
+        absTicker += newAbs;
 }
 
 bool USBRelay2::StopParkingAction(int dir)

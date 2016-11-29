@@ -141,6 +141,7 @@ class USBRelay2 : public INDI::Dome
         bool isParkingAction;
 	    bool TestingDevice;
         bool MoveStepp;
+        double absTicker;
 
         float CalcTimeLeft(timeval);
         void setAbsulutePosition();
