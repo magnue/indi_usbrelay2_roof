@@ -26,18 +26,15 @@ It's also worth noting that the 1 and 2 channel boards has a "optional" -5v +5v 
 INID USBRelay2 Roof does support simulation. You can compile it and see that it works on your system before considering getting the devices. Just enable simulation in the Options tab before connecting.
 
 
-<br>
 #### Known issues
 * At the moment the function 'USBInterface::GetDevices()' that calls the 'USBRL_API::usb_relay_device_enumerate()' never returns the info for more than two devices. This makes the device list in Device setup tab incomplete.
 * If Open or Close is aborted using the 'Abort' button, the switch status will not reset. This means that if aborting 'Open/Close' the 'Open/Close' button must be klicked twice to resume 'Open/Close'. This does not happend when Parking or Unparking, nor if 'Open/Close' is aborted with a second klick on 'Open/Close'. Aborting Open and resuming to Close works as expexted, and vice versa
 
-<br>
 #### Attributions
 * This project could not be done without the existing libindi project or the usb-relay-hid API.
 * This project is 3rd party and dependent on the mentioned projects, and licensed accordingly. See LICENSE, COPYING.GPL and COPYING.BSD.
 * Some files have additional lisence information, see file headers.
 
-<br>
 #### Installing dependencies
 ##### libindi and it's dependencies
 * To build libindi from source [see instructions on indilib.org](http://www.indilib.org/forum/general/210-howto-building-latest-libindi-ekos.html)
@@ -57,7 +54,6 @@ echo "/usr/local/lib" | sudo tee /etc/ld.so.conf.d/usr_local_lib.conf
 sudo ldconfig
 ```
 
-<br>
 #### Install INDI USBRelay2 Roof
 ```
 cd ~/Projects
@@ -76,7 +72,6 @@ cd build
 sudo make install
 ```
 
-<br>
 #### Example of use
 
 ##### connect and calibrate roof
@@ -88,6 +83,7 @@ sudo make install
 * Use the device test to see whitch physical device belongs to the device strings(s). The device test will turn one channel on for 1.5 sec and off again. Take a note of the result for future reference.
 * Set the motor speed (cm/sec) and roof travel (meters). This wil calculate the total travel in milliseconds.
 * For first run set the open limit to 75%, and close limit to 25%. this will make the roof not fully open and close.
+* Not that the format (char5x + i) is the five character long device string, then space [_], and the channel number. [ABCDE 1]
 
 ![setup-devs](doc-media/2-no-config-setup-devs.jpg)
 
@@ -137,3 +133,4 @@ sudo make install
 * Roof disconnected, reconnected and channel one is powered on..
 
 ![main-tab-connect](doc-media/13-maincontrol-power-connect.jpg)
+
