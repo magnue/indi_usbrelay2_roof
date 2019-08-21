@@ -25,7 +25,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <math.h>
-#include <string.h>
+#include <cstring>
 
 #include <memory>
 #include <algorithm>
@@ -98,6 +98,20 @@ void ISSnoopDevice (XMLEle *root)
 
 USBRelay2::USBRelay2()
 {
+    for (int i = 0; i < MAX_POWER_CHANNELS; ++i)
+    {
+        PowerSwitchSP[i] = new ISwitchVectorProperty;
+        PowerSwitchSP[i]->sp = NULL;
+
+        PowerDeviceTP[i] = new ITextVectorProperty;
+    	PowerDeviceTP[i]->tp = NULL;
+
+        ConnectingSwitchSP[i] = new ISwitchVectorProperty;
+        ParkingSwitchSP[i] = new ISwitchVectorProperty;
+        UnparkSwitchSP[i] = new ISwitchVectorProperty;
+    }
+    PowerDeviceT[0] = new IText;
+    
     setVersion(0,3);
     MotionRequest = 0;
     AbsAtStart = 0;
@@ -170,11 +184,6 @@ bool USBRelay2::initProperties()
     IUFillNumberVector(&AbsolutePosNP, AbsolutePosN, 1, getDeviceName(), "ABSOLUTE_POSITION",
             "Roof position", MAIN_CONTROL_TAB, IP_RO, 60, IPS_IDLE);
 
-    for (int i = 0; i < MAX_POWER_CHANNELS; ++i)
-    {
-        PowerSwitchSP[i] = new ISwitchVectorProperty;
-        PowerSwitchSP[i]->sp = NULL;
-    }
 
     /************************************************************************************
     * Calibration Tab
@@ -207,10 +216,6 @@ bool USBRelay2::initProperties()
     IUFillTextVector(&DeviceSelectTP,DeviceSelectT,3,getDeviceName(),"DEVICE_SELECTION","Open/Close devices",
             SETUP_TAB,IP_RW,60,IPS_IDLE);
 
-    for (int i = 0; i < MAX_POWER_CHANNELS; ++i)
-        PowerDeviceTP[i] = new ITextVectorProperty;
-    
-    PowerDeviceT[0] = new IText;
     IUFillText(PowerDeviceT[0],"POWER_DEVICE_NAME","dev 0 (char5x + i)","");
     IUFillTextVector(PowerDeviceTP[0],PowerDeviceT[0],1,getDeviceName(),"POWER_DEVICE_0","Power device 0",
             SETUP_TAB,IP_RW,60,IPS_IDLE);    
@@ -218,12 +223,6 @@ bool USBRelay2::initProperties()
     /************************************************************************************
     * Power setup TAB
     * ***********************************************************************************/
-    for (int i = 0; i < MAX_POWER_CHANNELS; ++i)
-    {
-        ConnectingSwitchSP[i] = new ISwitchVectorProperty;
-        ParkingSwitchSP[i] = new ISwitchVectorProperty;
-        UnparkSwitchSP[i] = new ISwitchVectorProperty;
-    }
     IUFillSwitch(&ConnectingEnableS[0],"CONNECTING_DISABLE","leave as is",ISS_ON);
     IUFillSwitch(&ConnectingEnableS[1],"CONNECTING_ENABLE","use connect mapping",ISS_OFF);
     IUFillSwitchVector(&ConnectingEnableSP,ConnectingEnableS,0,getDeviceName(),"CONNECTING_SELECT",
