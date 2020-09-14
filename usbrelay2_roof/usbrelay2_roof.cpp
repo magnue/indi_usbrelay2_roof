@@ -140,8 +140,6 @@ USBRelay2::~USBRelay2()
 bool USBRelay2::saveConfigItems(FILE *fp)
 {
     IUSaveConfigText(fp, &ActiveDeviceTP);
-    IUSaveConfigSwitch(fp, &AutoParkSP);
-    IUSaveConfigSwitch(fp, &TelescopeClosedLockTP);
 
     IUSaveConfigText(fp, &DeviceSelectTP);
     if (PowerSwitchSP[0]->sp != NULL)
@@ -941,11 +939,6 @@ IPState USBRelay2::Move(DomeDirection dir, DomeMotionCommand operation)
         if (dir == DOME_CW && fullOpenLimitSwitch == ISS_ON)
         {
             IDMessage(getDeviceName(),"Roof is already fully opened.\n");
-            return IPS_ALERT;
-        }
-        else if (dir == DOME_CW && getWeatherState() == IPS_ALERT)
-        {
-            IDMessage(getDeviceName(),"Weather conditions are in the danger zone. Cannot open roof.\n");
             return IPS_ALERT;
         }
         else if (dir == DOME_CCW && fullClosedLimitSwitch == ISS_ON)
