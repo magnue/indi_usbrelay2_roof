@@ -946,11 +946,6 @@ IPState USBRelay2::Move(DomeDirection dir, DomeMotionCommand operation)
             IDMessage(getDeviceName(),"Roof is already fully closed.\n");
             return IPS_ALERT;
         }
-        else if (dir == DOME_CCW && INDI::Dome::isLocked())
-        {
-            DEBUG(INDI::Logger::DBG_WARNING, "Cannot close dome when mount is locking. See: Telescope parkng policy, in options tab");
-            return IPS_ALERT;
-        }
         // We are changing direction! 
         // Must abort current motion before setting new direction to avoid short circut
         else if ( (DomeMotionS[DOME_CW].s == ISS_ON && dir == DOME_CCW)
