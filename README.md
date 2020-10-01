@@ -27,7 +27,6 @@ INID USBRelay2 Roof does support simulation. You can compile it and see that it 
 
 
 #### Known issues
-* At the moment the function 'USBInterface::GetDevices()' that calls the 'USBRL_API::usb_relay_device_enumerate()' never returns the info for more than two devices. This makes the device list in Device setup tab incomplete.
 * If Open or Close is aborted using the 'Abort' button, the switch status will not reset. This means that if aborting 'Open/Close' the 'Open/Close' button must be klicked twice to resume 'Open/Close'. This does not happend when Parking or Unparking, nor if 'Open/Close' is aborted with a second klick on 'Open/Close'. Aborting Open and resuming to Close works as expexted, and vice versa
 
 #### Attributions
@@ -76,61 +75,37 @@ sudo make install
 
 ##### connect and calibrate roof
 * Connect.. The driver will assume the roof is closed (parked) when connecting the first time.
+* In this image I have setup some of the power switches, but other than that, this is how it will look on first connect.
 
-![connect](doc-media/1-connect-no-config.jpg)
+![connect](doc-media/1-maintab-parked.jpg)
 
 * Enter the #A, #B, and #C channel. 
 * Use the device test to see whitch physical device belongs to the device strings(s). The device test will turn one channel on for 1.5 sec and off again. Take a note of the result for future reference.
-* Set the motor speed (cm/sec) and roof travel (meters). This wil calculate the total travel in milliseconds.
+* Set the motor speed (cm/sec) and roof travel (meters). This will calculate the total travel in milliseconds.
 * For first run set the open limit to 75%, and close limit to 25%. this will make the roof not fully open and close.
-* Not that the format (char5x + i) is the five character long device string, then space [_], and the channel number. [ABCDE 1]
-
-![setup-devs](doc-media/2-no-config-setup-devs.jpg)
-
+* Note that the format (char5x + i) is the five character long device string, then space [_], and the channel number. [ABCDE 1]
 * Unpark the roof so it opens to 75%
 * Use the stepp open (%) to fully open the roof, and note the abs position (as this will be your open limit)
 
-![calib-limits](doc-media/4-rooflimit-setup-step-open.jpg)
 
 * Park the roof so it will close to 25%
 * Use stepp close to find the abs position for fully closed position.
-
-![calib-limits](doc-media/6-rooflimit-setup-step-close.jpg)
-
 * Set your calibrated travel limits in Device Setup.
+* As a note the difference between the open, close (Motion) and the park, unpark (Parking) switches is that the (Motion) switches will not initiate the Power mapping.
+
+![power-dev-connect](doc-media/4-devicetab-10channels.jpg)
 
 ##### connect and set power devices
-* You can also add one or more (max 10) power channels. In this example i added two.
-* Note tat there is now a Power Setup tab
+* You can also add one or more (max 10) power channels. In this example i added seven.
+* For robustness and ease of 'service' there are now 10 fixed power devices, and you will have to keep track of them your self. This makes the code for this driver a lot nicer.
 
-![power-dev-connect](doc-media/7-powerdev-connect.jpg)
 
-* The Power Setup tab can be used to set the desired states for connection, parking and unparking. Default is leave everything as is.
+* The Power Setup tab can be used to set the desired states for connection, parking and unparking. Default is leave everything as is, and enable mapping.
+* With this new setup you can fine tune with channel is powered on, powered off or left alone when connecting, or unparking and parking the dome roof.
+* If you leave the 'Off connect' and the 'On connect' unchecked for a device, but keep 'Enable'. Then the mapping will do nothing for the device on connect, but you can still setup unpark and park mapping for that device.
+* If you have settings for a device that you want to keep, but not use for the moment, you can just uncheck the enable checkbox. Your settings will stil be saved / savable.
 
-![power-tab-connected](doc-media/8-powertab-connected.jpg)
+![power-tab-setup](doc-media/5-powertab-mapping.jpg)
 
-* In my case my mount supports hibernation and will be powered off when disconnected.
-* In that case set the channel that powers on your mount, to power on when connecting.
-* I have everything to power off when parking, and everything to power on when unparking.
-* Depending on your needs all of this might need other settings.
-
-![power-tab-setup](doc-media/9-powertab-setup.jpg)
-
-* As we added a power device we now have manual power switches on the Main Control tab, that can be used for manual power control.
+* As we added a power device we can now use the manual power switches on the Main Control tab.
 * The status of these switches will always be updated when connecting, unparking and parking.
-* The difference between the open, close (Motion) and the park, unpark (Parking) switches is that the (Motion) switches will not initiate the Power mapping.
-
-![main-tab](doc-media/10-maincontrol-power.jpg)
-
-* Roof unparked and all channels on..
-
-![main-tab-unpark](doc-media/11-maincontrol-power-unpark.jpg)
-
-* Roof parked and all channels off..
-
-![main-tab-park](doc-media/12-maincontrol-power-park.jpg)
-
-* Roof disconnected, reconnected and channel one is powered on..
-
-![main-tab-connect](doc-media/13-maincontrol-power-connect.jpg)
-
