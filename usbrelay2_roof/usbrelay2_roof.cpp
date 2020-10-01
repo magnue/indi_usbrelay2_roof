@@ -98,7 +98,7 @@ void ISSnoopDevice (XMLEle *root)
 
 USBRelay2::USBRelay2()
 {
-    setVersion(0,3);
+    setVersion(0,4);
     MotionRequest = 0;
     AbsAtStart = 0;
     isConnecting = true;
@@ -119,12 +119,19 @@ bool USBRelay2::saveConfigItems(FILE *fp)
 {
     IUSaveConfigText(fp, &ActiveDeviceTP);
 
-    IUSaveConfigText(fp, &DeviceSelectTP);
-
+    // Calibration tab
     IUSaveConfigNumber(fp, &RoofPropertiesNP);
     IUSaveConfigNumber(fp, &RoofTravelMSNP);
     IUSaveConfigNumber(fp, &RoofLimitNP);
-
+    IUSaveConfigText(fp, &DeviceSelectTP);
+    IUSaveConfigText(fp, &PowerDeviceTP);
+    
+    // Power tab
+    for (int i = 0; i < MAX_POWER_CHANNELS; ++i)
+    { 
+        IUSaveConfigSwitch(fp, &PowerOnStateSwitchSP[i]);
+        IUSaveConfigSwitch(fp, &PowerOffStateSwitchSP[i]);
+    }
     return true;
 }
 
@@ -184,21 +191,21 @@ bool USBRelay2::initProperties()
     IUFillTextVector(&DeviceSelectTP,DeviceSelectT,3,getDeviceName(),"DEVICE_SELECTION","Open/Close devices",
             SETUP_TAB,IP_RW,60,IPS_IDLE);
 
-    IUFillText(&PowerDeviceT[0],"POWER_DEVICE_0","dev 0 (char5x + i)","");
-    IUFillText(&PowerDeviceT[1],"POWER_DEVICE_1","dev 1 (char5x + i)","");
-    IUFillText(&PowerDeviceT[2],"POWER_DEVICE_2","dev 2 (char5x + i)","");
-    IUFillText(&PowerDeviceT[3],"POWER_DEVICE_3","dev 3 (char5x + i)","");
-    IUFillText(&PowerDeviceT[4],"POWER_DEVICE_4","dev 4 (char5x + i)","");
-    IUFillText(&PowerDeviceT[5],"POWER_DEVICE_5","dev 5 (char5x + i)","");
-    IUFillText(&PowerDeviceT[6],"POWER_DEVICE_6","dev 6 (char5x + i)","");
-    IUFillText(&PowerDeviceT[7],"POWER_DEVICE_7","dev 7 (char5x + i)","");
-    IUFillText(&PowerDeviceT[8],"POWER_DEVICE_8","dev 8 (char5x + i)","");
-    IUFillText(&PowerDeviceT[9],"POWER_DEVICE_9","dev 9 (char5x + i)","");
+    IUFillText(&PowerDeviceT[0],"POWER_DEVICE_0","dev 0 (char5x + i)"," ");
+    IUFillText(&PowerDeviceT[1],"POWER_DEVICE_1","dev 1 (char5x + i)"," ");
+    IUFillText(&PowerDeviceT[2],"POWER_DEVICE_2","dev 2 (char5x + i)"," ");
+    IUFillText(&PowerDeviceT[3],"POWER_DEVICE_3","dev 3 (char5x + i)"," ");
+    IUFillText(&PowerDeviceT[4],"POWER_DEVICE_4","dev 4 (char5x + i)"," ");
+    IUFillText(&PowerDeviceT[5],"POWER_DEVICE_5","dev 5 (char5x + i)"," ");
+    IUFillText(&PowerDeviceT[6],"POWER_DEVICE_6","dev 6 (char5x + i)"," ");
+    IUFillText(&PowerDeviceT[7],"POWER_DEVICE_7","dev 7 (char5x + i)"," ");
+    IUFillText(&PowerDeviceT[8],"POWER_DEVICE_8","dev 8 (char5x + i)"," ");
+    IUFillText(&PowerDeviceT[9],"POWER_DEVICE_9","dev 9 (char5x + i)"," ");
     IUFillTextVector(&PowerDeviceTP,PowerDeviceT,10,getDeviceName(),"POWER_DEVICES","Power devices",
             SETUP_TAB,IP_RW,60,IPS_IDLE);    
 
     /************************************************************************************
-    * Power setup TAB
+    * Power Tab
     * ***********************************************************************************/
     for (int i = 0; i < MAX_POWER_CHANNELS; i++)
     {
@@ -207,7 +214,7 @@ bool USBRelay2::initProperties()
         IUFillSwitch(&PowerOnStateSwitchS[i][2],"POWER_ON_STATE_PARK","On park",ISS_OFF);
         IUFillSwitch(&PowerOnStateSwitchS[i][3],"POWER_ON_STATE_LEAVE","Leave as is",ISS_ON);
         IUFillSwitchVector(&PowerOnStateSwitchSP[i],PowerOnStateSwitchS[i],4,getDeviceName(),
-                ("POWER_ON_STATES_" + to_string(i)).c_str(),("Power on states " + to_string(i)).c_str(),
+                ("POWER_ON_STATES_" + to_string(i)).c_str(),("On states " + to_string(i)).c_str(),
                 POWER_TAB,IP_RW,ISR_NOFMANY,0,IPS_OK);    
     }
     
@@ -218,7 +225,7 @@ bool USBRelay2::initProperties()
         IUFillSwitch(&PowerOffStateSwitchS[i][2],"POWER_OFF_STATE_PARK","Off park",ISS_OFF);
         IUFillSwitch(&PowerOffStateSwitchS[i][3],"POWER_OFF_STATE_LEAVE","Leave as is",ISS_ON);
         IUFillSwitchVector(&PowerOffStateSwitchSP[i],PowerOffStateSwitchS[i],4,getDeviceName(),
-                ("POWER_OFF_STATES_" + to_string(i)).c_str(),("Power off states " + to_string(i)).c_str(),
+                ("POWER_OFF_STATES_" + to_string(i)).c_str(),("Off states " + to_string(i)).c_str(),
                 POWER_TAB,IP_RW,ISR_NOFMANY,0,IPS_OK);    
     }
 
@@ -271,15 +278,15 @@ bool USBRelay2::SetupParams()
 bool USBRelay2::Connect()
 {
     if (INDI::DefaultDevice::isSimulation())
-        IDMessage(getDeviceName(),"Roof controller initialized (simulated)\n");
+        DEBUG(INDI::Logger::DBG_SESSION,"Roof controller initialized (simulated)\n");
     else if (usb.Init() == -1 || usb.GetDevices().empty())
     {
-        IDMessage(getDeviceName(),"Roof controller did not initialize...\n");
+        DEBUG(INDI::Logger::DBG_SESSION,"Roof controller did not initialize...\n");
         if (usb.GetDevices().empty()) 
-            IDMessage(getDeviceName(),"No connected devices\n");
+            DEBUG(INDI::Logger::DBG_SESSION,"No connected devices\n");
         return false;
     } else // Init OK
-        IDMessage(getDeviceName(),"Roof controller initialized\n");
+        DEBUG(INDI::Logger::DBG_SESSION,"Roof controller initialized\n");
 
     isConnecting = true;
     SetTimer(750);
@@ -291,20 +298,33 @@ void USBRelay2::SetAndUpdatePowerDevs()
 {
     if (!isConnecting)
         return;
-    /*
-    if (ConnectingEnableS[1].s == ISS_ON && PowerSwitchSP[0]->sp != NULL)
-    {
-        IDMessage(getDeviceName(),"Connect power mapping is enabled\n");
-        for (int i = 0; PowerSwitchSP[i]->sp != NULL; ++i)
-            Power(ConnectingSwitchS[i], i);
-    }
-    else
-        for (int i = 0; PowerSwitchSP[i]->sp != NULL; ++i)
-            UpdateChannels(i);
-    */
+
     for (int i = 0; i < MAX_POWER_CHANNELS; ++i)
-        UpdateChannels(i);
-    
+    {
+        int res = strcmp(PowerDeviceT[i].text," ");
+        if (res != 0)
+        {
+            DEBUG(INDI::Logger::DBG_SESSION,
+                    ("Hit if: " + to_string(res) + " with i: " + to_string(i)).c_str());
+            if (PowerOnStateSwitchS[i][0].s == ISS_ON && PowerOnStateSwitchS[i][3].s == ISS_OFF )
+            {
+                DEBUG(INDI::Logger::DBG_SESSION,
+                    ("Connect power on mapping enabled for dev: " + to_string(i)).c_str());
+                // <Power(PowerSwitch[i], i)
+            }
+            if (PowerOffStateSwitchS[i][0].s == ISS_ON && PowerOffStateSwitchS[i][3].s == ISS_OFF )
+            {
+                DEBUG(INDI::Logger::DBG_SESSION,
+                    ("Connect power off mapping enabled for dev: " + to_string(i)).c_str());
+                // <PowerOff(PowerSwitch[i], i)
+            }
+        }else
+        {
+            DEBUG(INDI::Logger::DBG_SESSION,
+                    ("Hit else: " + to_string(res) + " with i: " + to_string(i)).c_str());
+        }
+    }
+
     isConnecting = false;
 }
 
@@ -401,7 +421,7 @@ bool USBRelay2::ISNewNumber(const char *dev, const char *name, double values[], 
 
             if (values[0] > 0 && values[1] > 0)
             {
-                IDMessage(getDeviceName(), "Can not step in two directions at the same time, %s\n",
+                DEBUGF(INDI::Logger::DBG_SESSION, "Can not step in two directions at the same time, %s\n",
                         "set open or close step to zero");
                 MoveSteppNP.s = IPS_ALERT;
                 return false;
@@ -429,7 +449,7 @@ bool USBRelay2::ISNewNumber(const char *dev, const char *name, double values[], 
                     return false;
             }
             double percentOfTravel = (RoofTravelMSN[0].value * 0.01) * (isStepOpen ? values[0] : values[1]);
-            IDMessage(getDeviceName(), "Stepping roof %s, for %6.2f milliseconds\n",
+            DEBUGF(INDI::Logger::DBG_SESSION, "Stepping roof %s, for %6.2f milliseconds\n",
                     isStepOpen ? "open" : "close", percentOfTravel);
             
             gettimeofday(&MotionStart, NULL);
@@ -644,12 +664,12 @@ IPState USBRelay2::Move(DomeDirection dir, DomeMotionCommand operation)
         // as the limit switch indicates, then we simply return false.
         if (dir == DOME_CW && fullOpenLimitSwitch == ISS_ON)
         {
-            IDMessage(getDeviceName(),"Roof is already fully opened.\n");
+            DEBUG(INDI::Logger::DBG_SESSION,"Roof is already fully opened.\n");
             return IPS_ALERT;
         }
         else if (dir == DOME_CCW && fullClosedLimitSwitch == ISS_ON)
         {
-            IDMessage(getDeviceName(),"Roof is already fully closed.\n");
+            DEBUG(INDI::Logger::DBG_SESSION,"Roof is already fully closed.\n");
             return IPS_ALERT;
         }
         // We are changing direction! 
@@ -686,7 +706,7 @@ IPState USBRelay2::Move(DomeDirection dir, DomeMotionCommand operation)
         // Simulation enabeled, set the timer and return
         if (INDI::DefaultDevice::isSimulation())
         {
-            IDMessage(getDeviceName(),"Simulating motion for %6.2f millinseconds\n", MotionRequest);
+            DEBUGF(INDI::Logger::DBG_SESSION,"Simulating motion for %6.2f millinseconds\n", MotionRequest);
             SetTimer(100);
             return IPS_BUSY;
         }
@@ -702,11 +722,11 @@ IPState USBRelay2::Move(DomeDirection dir, DomeMotionCommand operation)
         ret += usb.OpenCloseChannel(DeviceSelectT[2].text, true);
         if (ret != 0)
         {
-            IDMessage(getDeviceName(),"Is open and close devices connected?\n");
-            IDMessage(getDeviceName(),"There was an error trying to %s roof\n", (open ? "open" : "close") );
+            DEBUG(INDI::Logger::DBG_SESSION,"Is open and close devices connected?\n");
+            DEBUGF(INDI::Logger::DBG_SESSION,"There was an error trying to %s roof\n", (open ? "open" : "close") );
             return IPS_ALERT;
         }
-        IDMessage(getDeviceName(),"Moving roof for %6.2f milliseconds\n", MotionRequest);
+        DEBUGF(INDI::Logger::DBG_SESSION,"Moving roof for %6.2f milliseconds\n", MotionRequest);
         SetTimer(100);       
         return IPS_BUSY;
     }
@@ -718,14 +738,14 @@ IPState USBRelay2::Move(DomeDirection dir, DomeMotionCommand operation)
 
 IPState USBRelay2::Park()
 {    
-    IDMessage(getDeviceName(),"USBRelay2 is parking...\n");
+    DEBUG(INDI::Logger::DBG_SESSION,"USBRelay2 is parking...\n");
     isParkingAction = true;
     return Move(DOME_CCW, MOTION_START);
 }
 
 IPState USBRelay2::UnPark()
 {
-    IDMessage(getDeviceName(),"USBRelay2 is unparking...\n");
+    DEBUG(INDI::Logger::DBG_SESSION,"USBRelay2 is unparking...\n");
     isParkingAction = true;
     return Move(DOME_CW, MOTION_START);
 }
@@ -774,14 +794,14 @@ bool USBRelay2::Abort()
         abortOpen = false;
     else
     {
-        IDMessage(getDeviceName(), "Could not abort, no roof motion...\n");
+        DEBUG(INDI::Logger::DBG_SESSION, "Could not abort, no roof motion...\n");
         return false;
     }
 
     // Simulated, timerhit is stopped, return
     if (INDI::DefaultDevice::isSimulation())
     {
-        IDMessage(getDeviceName(),"Simulated motion stopping...\n");
+        DEBUG(INDI::Logger::DBG_SESSION,"Simulated motion stopping...\n");
         return StopParkingAction(abortOpen ? DOME_CW : DOME_CCW);
     }
 
@@ -794,7 +814,7 @@ bool USBRelay2::Abort()
     }
     if (ret != 0)
     {
-        IDMessage(getDeviceName(),"There was an error trying to stopp %s of roof\n", 
+        DEBUGF(INDI::Logger::DBG_SESSION,"There was an error trying to stopp %s of roof\n", 
                 (abortOpen ? "opening" : "closing") );
         return false;
     }
@@ -806,7 +826,7 @@ bool USBRelay2::Power(ISwitch powerSwitch[], int devNbr)
     ISState onOff;
     onOff = powerSwitch[0].s;
     
-    IDMessage(getDeviceName(),"Powering %s device %s\n"
+    DEBUGF(INDI::Logger::DBG_SESSION,"Powering %s device %s\n"
             ,onOff == ISS_ON ? "on" : "off", PowerDeviceT[devNbr].text);
     if (!INDI::DefaultDevice::isSimulation())
     {
@@ -925,14 +945,14 @@ bool USBRelay2::StopParkingAction(int dir)
             else if (!isClosing && PowerOffStateSwitchS[i][1].s == ISS_ON)
                 Power(PowerSwitchS[1], i);
         }
-        IDMessage(getDeviceName(),"Roof is %s.\n", isClosing ? "closed" : "opened");
+        DEBUGF(INDI::Logger::DBG_SESSION,"Roof is %s.\n", isClosing ? "closed" : "opened");
         DomeMotionSP.s = IPS_OK;
         isParkingAction = false;
         return true;
     }
     else
     {
-        IDMessage(getDeviceName(),"Aborted %s of roof.\n", isClosing ? "closing" : "opening");
+        DEBUGF(INDI::Logger::DBG_SESSION,"Aborted %s of roof.\n", isClosing ? "closing" : "opening");
         fullOpenLimitSwitch   = ISS_OFF;
         fullClosedLimitSwitch = ISS_OFF;
         DomeMotionSP.s = IPS_ALERT;
@@ -960,27 +980,27 @@ bool USBRelay2::CheckValidDevice(char* text)
             channel = atoi(channelString.c_str());
         else
         {
-            IDMessage(getDeviceName(), "Channel == %s, not a number\n", channelString.c_str());
+            DEBUGF(INDI::Logger::DBG_SESSION, "Channel == %s, not a number\n", channelString.c_str());
             return false;
         }
 
         int nbrOfChannels;
         if (channel < 1 || channel > 9)
         {
-            IDMessage(getDeviceName(), "You can not spessify channel < 1, or > 8. Channel %d is not valid\n", channel);
+            DEBUGF(INDI::Logger::DBG_SESSION, "You can not spessify channel < 1, or > 8. Channel %d is not valid\n", channel);
             return false;
         }
         else if (!INDI::DefaultDevice::isSimulation() && !usb.TestConnect(strdup(devName.c_str())))
         {
-            IDMessage(getDeviceName(),"Failed to connect to device %s, channel %d\n",devName.c_str(), channel);
-            IDMessage(getDeviceName(),"Use device test to see if dev name is correct\n");
+            DEBUGF(INDI::Logger::DBG_SESSION,"Failed to connect to device %s, channel %d\n",devName.c_str(), channel);
+            DEBUG(INDI::Logger::DBG_SESSION,"Use device test to see if dev name is correct\n");
             return false;
         } 
         else if (!INDI::DefaultDevice::isSimulation() 
                 && (nbrOfChannels = usb.GetNumberOfChannelsForDevice(strdup(devName.c_str()))) < channel)
         {
-            IDMessage(getDeviceName(), "Failed to connect to device %s, channel %d\n",devName.c_str(), channel);
-            IDMessage(getDeviceName(), "Device %s, has only %d channels\n",devName.c_str(), nbrOfChannels);
+            DEBUGF(INDI::Logger::DBG_SESSION, "Failed to connect to device %s, channel %d\n",devName.c_str(), channel);
+            DEBUGF(INDI::Logger::DBG_SESSION, "Device %s, has only %d channels\n",devName.c_str(), nbrOfChannels);
             return false;
         }
         else
@@ -990,25 +1010,25 @@ bool USBRelay2::CheckValidDevice(char* text)
             {
                 if (strcmp(PowerDeviceT[i].text, text)==0)
                 {
-                    IDMessage(getDeviceName(), "Device %s, channel %d is valid, but allready configured as a powerdevice %d\n"
+                    DEBUGF(INDI::Logger::DBG_SESSION, "Device %s, channel %d is valid, but allready configured as a powerdevice %d\n"
                             , devName.c_str(), channel, i);
                     return false;
                 }
             }
             if (i == MAX_POWER_CHANNELS)
             {
-                IDMessage(getDeviceName(), "Device %s, channel %d is valid, but there is only room for %d powerdevices\n"
+                DEBUGF(INDI::Logger::DBG_SESSION, "Device %s, channel %d is valid, but there is only room for %d powerdevices\n"
                         ,devName.c_str(), channel, MAX_POWER_CHANNELS);
                 return false;
             }
             else if (!isConnecting)
-                IDMessage(getDeviceName(), "Device %s, channel %d is a valid device\n",devName.c_str(), channel);
+                DEBUGF(INDI::Logger::DBG_SESSION, "Device %s, channel %d is a valid device\n",devName.c_str(), channel);
         }
     }
     else
     {
-        IDMessage(getDeviceName(),"Device has info with a length of %u, need to be 7. Dev name (5x char) + ([space]Channel)\n",len);
-        IDMessage(getDeviceName(),"%s is not a valid device name. Example is (ABCDE 1)\n",text);
+        DEBUGF(INDI::Logger::DBG_SESSION,"Device has info with a length of %u, need to be 7. Dev name (5x char) + ([space]Channel)\n",len);
+        DEBUGF(INDI::Logger::DBG_SESSION,"%s is not a valid device name. Example is (ABCDE 1)\n",text);
         return false;
     }
     return true;
@@ -1036,7 +1056,7 @@ void USBRelay2::UpdateChannels(int devNbr)
         return;
 
     string input = PowerDeviceT[devNbr].text;
-    if (input == "")
+    if (strcmp(input.c_str(), "")==0)
         return;
 
     string channelString;
