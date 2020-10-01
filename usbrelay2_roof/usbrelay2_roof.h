@@ -121,7 +121,7 @@ class USBRelay2 : public INDI::Dome
         void DefineProperties();
         void DeleteProperties();
 
-        bool Power(ISwitch powerSwitch[], int devNbr);
+        bool Power(ISwitch powerSwitch[], int devNbr, bool forceState, bool stateOn);
         vector<const char*> getDevices();
         void UpdateChannels(int devNbr);
         bool TestDevice(char *devName);
