@@ -1,6 +1,6 @@
 /*******************************************************************************
  USBRelay2 Roof # INDI driver for controlling usb-relay2 devices
- Copyright(c) 2015 Magnus W. Eriksen
+ Copyright(c) 2015-2020 Magnus W. Eriksen
 
  based on: RollOff Roof by:
  Copyright(c) 2014 Jasem Mutlaq. All rights reserved.
@@ -33,6 +33,7 @@ using std::vector;
 
 #define MAX_POWER_CHANNELS  10
 #define CHANNEL_STATES      2
+#define POWER_STATES        4
 
 class USBRelay2 : public INDI::Dome
 {
@@ -73,7 +74,7 @@ class USBRelay2 : public INDI::Dome
         INumberVectorProperty AbsolutePosNP;
         INumber AbsolutePosN[1];
 
-        ISwitchVectorProperty* PowerSwitchSP        [MAX_POWER_CHANNELS];
+        ISwitchVectorProperty PowerSwitchSP         [MAX_POWER_CHANNELS];
         ISwitch PowerSwitchS                        [MAX_POWER_CHANNELS]    [CHANNEL_STATES];
 
         // Calibration Tab
@@ -86,8 +87,8 @@ class USBRelay2 : public INDI::Dome
         ITextVectorProperty DeviceSelectTP;
         IText DeviceSelectT[3];
 
-        ITextVectorProperty* PowerDeviceTP          [MAX_POWER_CHANNELS];
-        IText* PowerDeviceT                         [MAX_POWER_CHANNELS]    { NULL };
+        ITextVectorProperty PowerDeviceTP;
+        IText PowerDeviceT[MAX_POWER_CHANNELS];
 
         INumberVectorProperty RoofPropertiesNP;
         INumber RoofPropertiesN[2];
@@ -99,23 +100,11 @@ class USBRelay2 : public INDI::Dome
         INumber RoofLimitN[2];
 
         // Power Tab
-        ISwitchVectorProperty* ConnectingSwitchSP   [MAX_POWER_CHANNELS];
-        ISwitch ConnectingSwitchS                   [MAX_POWER_CHANNELS]    [CHANNEL_STATES];
-
-        ISwitchVectorProperty ConnectingEnableSP;
-        ISwitch ConnectingEnableS[2];
-
-        ISwitchVectorProperty* ParkingSwitchSP      [MAX_POWER_CHANNELS];
-        ISwitch ParkingSwitchS                      [MAX_POWER_CHANNELS]    [CHANNEL_STATES];
-
-        ISwitchVectorProperty ParkingEnableSP;
-        ISwitch ParkingEnableS[2];
-
-        ISwitchVectorProperty* UnparkSwitchSP       [MAX_POWER_CHANNELS];
-        ISwitch UnparkSwitchS                       [MAX_POWER_CHANNELS]    [CHANNEL_STATES];
-
-        ISwitchVectorProperty UnparkEnableSP;
-        ISwitch UnparkEnableS[2];
+        ISwitchVectorProperty PowerOnStateSwitchSP  [MAX_POWER_CHANNELS];
+        ISwitch PowerOnStateSwitchS                 [MAX_POWER_CHANNELS]    [POWER_STATES];
+        
+        ISwitchVectorProperty PowerOffStateSwitchSP [MAX_POWER_CHANNELS];
+        ISwitch PowerOffStateSwitchS                [MAX_POWER_CHANNELS]    [POWER_STATES];
 
     private:
 
@@ -128,7 +117,7 @@ class USBRelay2 : public INDI::Dome
         bool isConnecting;
         bool isAdding;
         void SetAndUpdatePowerDevs();
-        bool SetupParms();
+        bool SetupParams();
         void DefineProperties();
         void DeleteProperties();
 

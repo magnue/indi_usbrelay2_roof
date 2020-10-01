@@ -1,7 +1,7 @@
 /*******************************************************************************
  USBInterface 
  intermediate class for communication between USBRelay2 Roof and the usb-relay-hid API
- Copyright (c) 2015 Magnus W. Eriksen
+ Copyright (c) 2015-2020 Magnus W. Eriksen
 
  This library is free software; you can redistribute it and/or
  modify it under the terms of the GNU Lesser General Public
