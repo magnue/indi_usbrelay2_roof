@@ -315,6 +315,8 @@ void USBRelay2::SetAndUpdatePowerDevs()
                     ("Connect power off mapping enabled for dev: " + to_string(i)).c_str());
                 Power(PowerSwitchS[i], i, true, false);
             }
+            else
+                UpdateChannels(i);
         }
     }
     isConnecting = false;
@@ -614,7 +616,7 @@ void USBRelay2::TimerHit()
             Abort();
         else
         {
-            setAbsulutePosition();
+            setAbsolutePosition();
             SetTimer(100);
         }
     }
@@ -625,7 +627,7 @@ void USBRelay2::TimerHit()
             Abort();
         else
         {
-            setAbsulutePosition();
+            setAbsolutePosition();
             SetTimer(100);
         }
     }
@@ -634,7 +636,7 @@ void USBRelay2::TimerHit()
     {
         if (Abort())
         {
-            setAbsulutePosition();
+            setAbsolutePosition();
             MoveStepp = false;
         }
     }
@@ -884,7 +886,7 @@ bool USBRelay2::getFullClosedLimitSwitch()
         return false;
 }
 
-void USBRelay2::setAbsulutePosition()
+void USBRelay2::setAbsolutePosition()
 {
     int dir = DOME_CW;
     if (MoveStepp)
@@ -906,7 +908,7 @@ void USBRelay2::setAbsulutePosition()
     double diff = absTicker - newAbs;
 
 
-    // We do not want to update the ApbsolutePos property for any amount of changes.
+    // We do not want to update the AbsolutePos property for any amount of changes.
     // Avoids client being spammed on low speed remot connections.
     if (diff >= 500 || diff <= -500 || timeleft <= 500)
     {
@@ -1053,7 +1055,7 @@ void USBRelay2::UpdateChannels(int devNbr)
         return;
 
     string input = PowerDeviceT[devNbr].text;
-    if (strcmp(input.c_str(), "")==0)
+    if (strcmp(input.c_str(), " ")==0)
         return;
 
     string channelString;

@@ -133,7 +133,7 @@ class USBRelay2 : public INDI::Dome
         double absTicker;
 
         float CalcTimeLeft(timeval);
-        void setAbsulutePosition();
+        void setAbsolutePosition();
         bool StopParkingAction(int dir);
         void ParkedStatus(bool status);
 };
