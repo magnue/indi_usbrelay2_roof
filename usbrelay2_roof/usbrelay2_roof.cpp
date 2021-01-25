@@ -349,25 +349,25 @@ void USBRelay2::DefineProperties()
     if (isConnecting)
     {
         // Main tab
-        defineNumber(&MoveSteppNP);
-        defineNumber(&AbsolutePosNP);
+        defineProperty(&MoveSteppNP);
+        defineProperty(&AbsolutePosNP);
         for (int i = 0; i < MAX_POWER_CHANNELS; ++i)
-            defineSwitch(&PowerSwitchSP[i]);
+            defineProperty(&PowerSwitchSP[i]);
 
         // Calib tab
-        defineNumber(&RoofPropertiesNP);
-        defineNumber(&RoofTravelMSNP);
-        defineNumber(&RoofLimitNP);
-        defineText(&DeviceListTP);
-        defineText(&DeviceTestTP);
-        defineText(&DeviceSelectTP);
-        defineText(&PowerDeviceTP);
+        defineProperty(&RoofPropertiesNP);
+        defineProperty(&RoofTravelMSNP);
+        defineProperty(&RoofLimitNP);
+        defineProperty(&DeviceListTP);
+        defineProperty(&DeviceTestTP);
+        defineProperty(&DeviceSelectTP);
+        defineProperty(&PowerDeviceTP);
 
         // Power tab
         for (int i = 0; i < MAX_POWER_CHANNELS; ++i)
         {
-            defineSwitch(&PowerOnStateSwitchSP[i]);
-            defineSwitch(&PowerOffStateSwitchSP[i]);
+            defineProperty(&PowerOnStateSwitchSP[i]);
+            defineProperty(&PowerOffStateSwitchSP[i]);
         }
     }   
 }
